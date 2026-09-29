@@ -12,6 +12,9 @@ set -euo pipefail
 REPO="${REPO:-https://github.com/imhotep/pev-buddy.git}"
 APP_DIR="${APP_DIR:-$HOME/pev-buddy}"
 PORT="${PORT:-8000}"
+# HTTPS port Funnel exposes publicly. Use 8443 (or 10000) when another app
+# already owns this node's 443.
+FUNNEL_PORT="${FUNNEL_PORT:-443}"
 FORCE_SYNC=0
 [ "${1:-}" = "--sync" ] && FORCE_SYNC=1
 
@@ -70,5 +73,5 @@ sudo systemctl enable --now pev-buddy
 sudo systemctl restart pev-buddy
 
 # --- public ingress (serve config needs root unless tailscale operator is set) ---
-sudo tailscale funnel --bg "$PORT"
+sudo tailscale funnel --bg --https="$FUNNEL_PORT" "$PORT"
 tailscale funnel status

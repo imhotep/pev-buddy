@@ -162,6 +162,12 @@ registers a systemd unit serving uvicorn on `127.0.0.1:8000`, and runs
 `https://<node>.<tailnet>.ts.net` with TLS handled by Tailscale. A 1 GB VPS
 is enough (the app holds ~316 MB warm).
 
+Sharing the node with another public app? Funnel supports ports 443, 8443,
+and 10000 per node, e.g. `PORT=8765 FUNNEL_PORT=8443 bash deploy/setup.sh`
+puts PEV Buddy at `https://<node>.<tailnet>.ts.net:8443` while the other app
+keeps 443. Building the data bundle needs ~1.5 GB free RAM; on a small or
+busy VPS, build locally and push: `rsync -az data/ <host>:~/pev-buddy/data/`.
+
 ## Decisions & judgment calls
 
 The trade-offs section below lists what I cut; this one is why the core design
