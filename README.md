@@ -4,6 +4,13 @@
 e-bike/e-scooter/moped routing that weighs every street by its speed, built
 entirely on [Overture Maps](https://overturemaps.org) data.**
 
+[![tests](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml/badge.svg)](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml)
+
+**Live demo: [pev-buddy.onrender.com](https://pev-buddy.onrender.com)** (free
+tier — give it a few seconds to wake up)
+
+![PEV Buddy: an e-scooter route across San Francisco with turn-by-turn steps](docs/screenshot.png)
+
 ## Why this
 
 San Francisco's EV charging map is a scatter of stations, but the real question
