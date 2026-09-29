@@ -65,7 +65,8 @@ that keep a PEV or bike safe — served as a second, differently-colored layer.
    slice: **~316 MB RSS and ~0.4 s warm-up, vs ~960 MB and 1.6 s** when
    building from the raw slices — which is what lets the app fit a 512 MB
    free-tier instance. Byte-level parity between the bundle and raw-slice
-   paths is enforced by tests (`tests/test_bundle.py`).
+   paths is enforced by tests (`tests/test_bundle.py`). Full write-up with
+   measurements: [docs/memory-optimization.md](docs/memory-optimization.md).
 
    **CA vehicle types.** All vehicle types are defined as data in
    `src/pev_buddy/config.py` (`VEHICLE_TYPES`); the UI dropdown, the API, and
