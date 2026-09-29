@@ -4,7 +4,23 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+def _project_root() -> Path:
+    """Where data/ and web/ live.
+
+    A regular (non-editable) pip install puts this file in site-packages, so
+    the package-derived root only works for editable installs. When it lacks
+    web/, fall back to the working directory — uvicorn and `sync` are both
+    run from the repo checkout (locally and on Render).
+    """
+    pkg_root = Path(__file__).resolve().parent.parent.parent
+    if (pkg_root / "web").is_dir():
+        return pkg_root
+    cwd = Path.cwd()
+    return cwd if (cwd / "pyproject.toml").exists() else pkg_root
+
+
+PROJECT_ROOT = _project_root()
 DATA_DIR = Path(os.environ.get("PEV_BUDDY_DATA", PROJECT_ROOT / "data"))
 
 # San Francisco plus a little headroom (bridge approaches, Muni reach).
