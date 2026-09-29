@@ -1,6 +1,4 @@
 import orjson
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,100 +7,8 @@ from pev_buddy.api import create_app
 
 
 @pytest.fixture()
-def client(tmp_path):
-    data = tmp_path / "data"
-    data.mkdir()
-    feats = road_features()
-    (data / "roads.geojson").write_bytes(orjson.dumps({"type": "FeatureCollection", "features": feats}))
-    connectors = {f"conn-{n}": list(m_to_lonlat(*p)) for n, p in {
-        "A": (0, 0), "B": (100, 0), "C": (200, 0), "D": (0, -100), "E": (100, -100),
-        "F": (200, -100), "G": (0, -200), "H": (-100, 0), "H2": (-100, -100), "X": (250, -100),
-        "Y": (300, -100), "I": (-100, 100), "J": (-100, -200),
-    }.items()}
-    (data / "connectors.json").write_bytes(orjson.dumps(connectors))
-
-    alon, alat = m_to_lonlat(0, 0)
-    (data / "stations.geojson").write_bytes(
-        orjson.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "id": "st-1",
-                        "properties": {
-                            "name": "Test Charger",
-                            "brand": "EVgo",
-                            "address": "123 Test Way",
-                            "phone": None,
-                            "website": None,
-                            "confidence": 0.9,
-                        },
-                        "geometry": {"type": "Point", "coordinates": [alon, alat]},
-                    }
-                ],
-            }
-        )
-    )
-    blon, blat = m_to_lonlat(0, 0)
-    blon2, blat2 = m_to_lonlat(200, -100)
-    (data / "bikelink.geojson").write_bytes(
-        orjson.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "id": "bl-1",
-                        "properties": {
-                            "name": "Test Locker",
-                            "facility_type": "eLocker",
-                            "address": "123 Test Way",
-                            "city": "SF",
-                            "num_spaces": 20,
-                            "access_devices": ["BikeLink App"],
-                        },
-                        "geometry": {"type": "Point", "coordinates": [blon, blat]},
-                    },
-                    {
-                        "type": "Feature",
-                        "id": "bl-2",
-                        "properties": {
-                            "name": "Far Locker",
-                            "facility_type": "Bike Hangar",
-                            "address": None,
-                            "city": "SF",
-                            "num_spaces": None,
-                            "access_devices": [],
-                        },
-                        "geometry": {"type": "Point", "coordinates": [blon2, blat2]},
-                    },
-                ],
-            }
-        )
-    )
-    table = pa.table(
-        {
-            "street": ["MAIN ST", "SIDE ST"],
-            "number": ["5", "10"],
-            "unit": [None, None],
-            "postcode": ["94102", "94102"],
-            "lon": [m_to_lonlat(0, 0)[0], m_to_lonlat(0, -100)[0]],
-            "lat": [m_to_lonlat(0, 0)[1], m_to_lonlat(0, -100)[1]],
-        }
-    )
-    pq.write_table(table, data / "addresses.parquet")
-    (data / "places.json").write_bytes(
-        orjson.dumps(
-            [
-                ["p-1", "Test Bakery", "restaurant", "12 Test Way", m_to_lonlat(0, 0)[0], m_to_lonlat(0, 0)[1]],
-                ["p-2", "Side Street Deli", "casual_eatery", "10 Side St", m_to_lonlat(0, -100)[0], m_to_lonlat(0, -100)[1]],
-            ]
-        )
-    )
-    (data / "manifest.json").write_text('{"release": "test", "counts": {}}')
-
-    app = create_app(data_dir=str(data))
+def client(synth_data_dir):
+    app = create_app(data_dir=str(synth_data_dir))
     with TestClient(app) as c:
         yield c
 

@@ -12,6 +12,8 @@ import time
 import httpx
 import pytest
 
+from conftest import m_to_lonlat, write_synth_bundle
+
 pytest.importorskip("playwright.sync_api")
 
 from playwright.sync_api import sync_playwright  # noqa: E402
@@ -20,10 +22,15 @@ BASE = "http://127.0.0.1:8771"
 
 
 @pytest.fixture(scope="session")
-def live_server():
+def live_server(tmp_path_factory):
     import uvicorn
 
-    from pev_buddy.api import app
+    from pev_buddy.api import create_app
+
+    # The repo's real data/ is gitignored (built by `pev-buddy sync` at deploy
+    # time), so the browser tests run against the synthetic bundle instead.
+    data = write_synth_bundle(tmp_path_factory.mktemp("synth") / "data")
+    app = create_app(data_dir=str(data))
 
     config = uvicorn.Config(app, host="127.0.0.1", port=8771, log_level="warning")
     server = uvicorn.Server(config)
@@ -68,12 +75,15 @@ def page(browser, live_server):
 
 
 def route_via_ui(page):
-    """Set a start/destination through the same path the UI uses."""
+    """Set a start/destination through the same path the UI uses, on the
+    synthetic network: node A (Main Street) to node F (end of the cycle path)."""
+    alon, alat = m_to_lonlat(0, 0)
+    flon, flat = m_to_lonlat(200, -100)
     page.evaluate(
-        """() => {
-          setStart({ kind: 'coords', lat: 37.7749, lon: -122.4194, label: 'Test start' });
-          setEnd({ kind: 'coords', lat: 37.8080, lon: -122.4177, label: 'Test end' });
-        }"""
+        f"""() => {{
+          setStart({{ kind: 'coords', lat: {alat}, lon: {alon}, label: 'Test start' }});
+          setEnd({{ kind: 'coords', lat: {flat}, lon: {flon}, label: 'Test end' }});
+        }}"""
     )
     page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=15000)
 
@@ -99,9 +109,10 @@ def test_vehicle_select_populated_from_api(page):
 
 
 def test_search_results_and_escape(page):
-    page.fill("#search", "ferry")
+    page.fill("#search", "bakery")
     page.wait_for_selector("#search-results:not(.hidden)")
     assert page.eval_on_selector_all("#search-results .result", "els => els.length") >= 1
+    assert "Test Bakery" in page.text_content("#search-results")
     assert page.get_attribute("#search", "aria-expanded") == "true"
     # Result count is announced to screen readers.
     status = page.text_content("#search-status")
