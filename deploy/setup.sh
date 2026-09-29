@@ -31,7 +31,7 @@ else
 fi
 cd "$APP_DIR"
 
-if [ ! -x .venv/bin/python ]; then
+if [ ! -x .venv/bin/pip ]; then
   rm -rf .venv  # may be a leftover from a failed ensurepip-less attempt
   python3 -m venv .venv
 fi
