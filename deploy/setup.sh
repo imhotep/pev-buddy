@@ -39,8 +39,15 @@ fi
 .venv/bin/pip install -q --no-deps .
 
 # --- data (gitignored; built once, refreshed with --sync) ---
+# Building the bundle needs ~1.5 GB free RAM. On small/shared VPSs that can
+# OOM — in that case build on a dev machine and push the result instead:
+#   rsync -az data/ vps:pev-buddy/data/
 if [ "$FORCE_SYNC" = 1 ] || [ ! -f data/graph.npz ]; then
-  .venv/bin/python -m pev_buddy.sync
+  if ! .venv/bin/python -m pev_buddy.sync; then
+    echo >&2 "sync failed (often OOM on small VPSs). Build locally and push:"
+    echo >&2 "  rsync -az data/ <host>:$APP_DIR/data/"
+    exit 1
+  fi
 fi
 
 # --- systemd service (localhost only; Funnel provides the public edge) ---
