@@ -24,6 +24,12 @@ const map = new maplibregl.Map({
 });
 map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 map.addControl(new maplibregl.NavigationControl(), "top-right");
+// MapLibre labels the canvas just "Map" — give assistive tech a real summary.
+// Keyboard pan/zoom (+/-/arrows) is built into the canvas itself.
+map.getCanvas().setAttribute(
+  "aria-label",
+  "Interactive map of San Francisco showing EV chargers, BikeLink lockers, and the current route"
+);
 
 const state = {
   startRef: null, // {kind, station_id?, query?, lat, lon, label}
@@ -203,6 +209,8 @@ const endMarker = new maplibregl.Marker({ element: makeDot("#ffb02e") });
 
 function makeDot(color) {
   const el = document.createElement("div");
+  // Decorative — the sidebar start/destination labels carry the same info as text.
+  el.setAttribute("aria-hidden", "true");
   el.style.cssText = `width:14px;height:14px;border-radius:50%;background:${color};border:2.5px solid #101820;box-shadow:0 1px 6px rgba(0,0,0,.6);`;
   return el;
 }
@@ -370,12 +378,26 @@ document.getElementById("reset-route").addEventListener("click", resetTrip);
 // back to the steps.
 function syncStepsToggle() {
   const drawerHidden = document.getElementById("steps-drawer").classList.contains("hidden");
-  document.getElementById("show-steps").classList.toggle("hidden", !(state.routeShown && drawerHidden));
+  const toggle = document.getElementById("show-steps");
+  toggle.classList.toggle("hidden", !(state.routeShown && drawerHidden));
+  toggle.setAttribute("aria-expanded", String(!drawerHidden));
 }
-document.getElementById("show-steps").addEventListener("click", () => {
+
+function openStepsDrawer(moveFocus) {
   document.getElementById("steps-drawer").classList.remove("hidden");
   syncStepsToggle();
-});
+  if (moveFocus) document.getElementById("steps-close").focus();
+}
+
+function closeStepsDrawer(moveFocus) {
+  document.getElementById("steps-drawer").classList.add("hidden");
+  syncStepsToggle();
+  // Return focus to the toggle that reopens the drawer, if it is on screen.
+  const toggle = document.getElementById("show-steps");
+  if (moveFocus && !toggle.classList.contains("hidden")) toggle.focus();
+}
+
+document.getElementById("show-steps").addEventListener("click", () => openStepsDrawer(true));
 
 function useMyLocation(which) {
   if (!navigator.geolocation) return alert("Geolocation is not available in this browser.");
@@ -397,16 +419,36 @@ document.getElementById("use-location-end").addEventListener("click", () => useM
 
 const searchInput = document.getElementById("search");
 const searchResults = document.getElementById("search-results");
+const searchStatus = document.getElementById("search-status");
 let searchTimer = null;
+
+function showSearchResults() {
+  searchResults.classList.remove("hidden");
+  searchInput.setAttribute("aria-expanded", "true");
+}
+
+function hideSearchResults() {
+  searchResults.classList.add("hidden");
+  searchInput.setAttribute("aria-expanded", "false");
+  searchStatus.textContent = "";
+}
 
 searchInput.addEventListener("input", () => {
   clearTimeout(searchTimer);
   const q = searchInput.value.trim();
   if (q.length < 2) {
-    searchResults.classList.add("hidden");
+    hideSearchResults();
     return;
   }
   searchTimer = setTimeout(() => runSearch(q), 300);
+});
+
+// Escape anywhere inside the search area closes the dropdown and returns
+// focus to the input.
+document.querySelector(".search").addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || searchResults.classList.contains("hidden")) return;
+  hideSearchResults();
+  searchInput.focus();
 });
 
 async function runSearch(q) {
@@ -416,7 +458,8 @@ async function runSearch(q) {
     const items = await res.json();
     if (!items.length) {
       searchResults.innerHTML = `<div class="result muted">No matches</div>`;
-      searchResults.classList.remove("hidden");
+      showSearchResults();
+      searchStatus.textContent = "No matches";
       return;
     }
     searchResults.innerHTML = "";
@@ -446,25 +489,26 @@ async function runSearch(q) {
           if (kind === "start") setStart(ref);
           else setEnd(ref);
           map.flyTo({ center: [r.lon, r.lat], zoom: 15, ...FLY });
-          searchResults.classList.add("hidden");
+          hideSearchResults();
         });
         row.appendChild(b);
       }
       div.appendChild(row);
       div.addEventListener("click", () => {
         map.flyTo({ center: [r.lon, r.lat], zoom: 15, ...FLY });
-        searchResults.classList.add("hidden");
+        hideSearchResults();
       });
       searchResults.appendChild(div);
     }
-    searchResults.classList.remove("hidden");
+    showSearchResults();
+    searchStatus.textContent = `${items.length} result${items.length === 1 ? "" : "s"}`;
   } catch {
-    searchResults.classList.add("hidden");
+    hideSearchResults();
   }
 }
 
 document.addEventListener("click", (e) => {
-  if (!e.target.closest(".search")) searchResults.classList.add("hidden");
+  if (!e.target.closest(".search")) hideSearchResults();
 });
 
 // map click: a charger shows its bubble; empty space sets start (if a
@@ -546,8 +590,7 @@ async function computeRoute() {
   } catch (err) {
     state.routeShown = false;
     summary.innerHTML = `<span class="warn">⚠ ${escapeHtml(err.message)}</span>`;
-    document.getElementById("steps-drawer").classList.add("hidden");
-    syncStepsToggle();
+    closeStepsDrawer(false);
   } finally {
     state.routing = false;
     btns.forEach((b) => (b.disabled = false));
@@ -612,6 +655,8 @@ function renderRoute(data) {
     li.append(idx, txt, dist);
     li.addEventListener("click", () => selectStep(li, s));
     li.tabIndex = 0;
+    li.setAttribute("role", "button");
+    li.setAttribute("aria-pressed", "false");
     li.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
@@ -621,8 +666,7 @@ function renderRoute(data) {
     ol.appendChild(li);
   }
   document.getElementById("steps-title").textContent = "Turn-by-turn";
-  document.getElementById("steps-drawer").classList.remove("hidden");
-  syncStepsToggle();
+  openStepsDrawer(false);
 }
 
 // ---------------------------------------------------------------- step highlight
@@ -631,7 +675,10 @@ function clearStepHighlight() {
   state.activeStep = null;
   if (map.getSource("pev-step-hl")) map.getSource("pev-step-hl").setData(emptyFC());
   if (map.getSource("pev-step-dot")) map.getSource("pev-step-dot").setData(emptyFC());
-  document.querySelectorAll("#steps li.active").forEach((li) => li.classList.remove("active"));
+  document.querySelectorAll("#steps li.active").forEach((li) => {
+    li.classList.remove("active");
+    li.setAttribute("aria-pressed", "false");
+  });
 }
 
 // Click a step in the list: highlight the segment it covers on the map
@@ -644,6 +691,7 @@ function selectStep(li, step) {
   clearStepHighlight();
   state.activeStep = step.index;
   li.classList.add("active");
+  li.setAttribute("aria-pressed", "true");
 
   const line =
     step.geometry && step.geometry.length > 1
@@ -666,9 +714,9 @@ function selectStep(li, step) {
   }
 }
 
-document.getElementById("steps-close").addEventListener("click", () => {
-  document.getElementById("steps-drawer").classList.add("hidden");
-  syncStepsToggle();
+document.getElementById("steps-close").addEventListener("click", () => closeStepsDrawer(true));
+document.getElementById("steps-drawer").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeStepsDrawer(true);
 });
 
 function escapeHtml(s) {
