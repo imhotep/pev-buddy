@@ -16,7 +16,9 @@ FORCE_SYNC=0
 [ "${1:-}" = "--sync" ] && FORCE_SYNC=1
 
 # --- system deps (Debian/Ubuntu; no-op when already present) ---
-if ! command -v git >/dev/null 2>&1 || ! python3 -m venv --help >/dev/null 2>&1; then
+# Note: `python3 -m venv --help` succeeds without python3-venv; ensurepip is
+# the reliable probe.
+if ! command -v git >/dev/null 2>&1 || ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
   sudo apt-get update -qq
   sudo apt-get install -y -qq git python3-venv
 fi
@@ -29,7 +31,10 @@ else
 fi
 cd "$APP_DIR"
 
-python3 -m venv .venv
+if [ ! -x .venv/bin/python ]; then
+  rm -rf .venv  # may be a leftover from a failed ensurepip-less attempt
+  python3 -m venv .venv
+fi
 .venv/bin/pip install -q -r requirements.txt
 .venv/bin/pip install -q --no-deps .
 
