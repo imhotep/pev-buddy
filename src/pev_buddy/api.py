@@ -375,6 +375,10 @@ def create_app(data_dir: str | None = None) -> FastAPI:
     def bikelink_geojson() -> Response:
         return geojson_file("bikelink.geojson")
 
+    @app.get("/data/racks.geojson", include_in_schema=False)
+    def racks_geojson() -> Response:
+        return geojson_file("racks.geojson")
+
     web_dir = config.PROJECT_ROOT / "web"
     if web_dir.exists():
         app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")

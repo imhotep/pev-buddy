@@ -71,16 +71,14 @@ def test_cache_bust_versions_match():
     assert css_v == js_v, "style.css and app.js should share one cache-bust version"
 
 
-def test_bikelink_layer_wired_with_distinct_color():
+def test_poi_layers_clustered_with_distinct_kind_colors():
     js = _text("app.js")
-    assert '"pev-bikelink"' in js, "app.js never adds the bikelink layer"
-    # The locker layer must be its own layer with its own color, not the
-    # charger amber.
-    layer = js.split('id: "pev-bikelink"', 1)[1].split("};", 1)[0]
-    station_paint = js.split('id: "pev-stations"', 1)[1].split("};", 1)[0]
-    assert '"circle-color"' in layer
-    assert re.search(r'"circle-color":\s*"([^"]+)"', layer).group(1) != re.search(
-        r'"circle-color":\s*"([^"]+)"', station_paint
-    ).group(1)
+    # Chargers, BikeLink lockers, and bike racks share one clustered source:
+    # count bubbles when zoomed out, colored pins when zoomed in.
+    assert '"pev-pois"' in js and "cluster: true" in js
+    assert "point_count_abbreviated" in js, "clusters must show a count label"
+    colors = dict(re.findall(r'"(charger|locker|rack)",\s*"(#[0-9a-f]+)"', js))
+    assert set(colors) == {"charger", "locker", "rack"}, "all three POI kinds must be styled"
+    assert len(set(colors.values())) == 3, "each POI kind needs its own pin color"
     # Clicking a locker must be able to open its bubble.
     assert "showBikeLinkPopup" in js

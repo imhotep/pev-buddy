@@ -95,6 +95,11 @@ def test_homepage_loads(page):
     # The canvas carries a descriptive accessible name, not just "Map".
     label = page.get_attribute("#map canvas", "aria-label")
     assert label and "San Francisco" in label
+    # POIs render through the clustered source: pins + count bubbles.
+    layers = page.evaluate(
+        "() => ['pev-pois', 'pev-clusters', 'pev-cluster-count'].map((id) => !!map.getLayer(id))"
+    )
+    assert all(layers)
 
 
 def test_vehicle_select_populated_from_api(page):

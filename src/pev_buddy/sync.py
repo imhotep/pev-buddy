@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 import orjson
 
-from . import bikelink_fetch, config, overture_fetch
+from . import bikelink_fetch, config, overture_fetch, racks_fetch
 
 
 @click.group()
@@ -53,9 +53,9 @@ def _write_addresses_bundle(out_dir: Path) -> None:
 @click.option("--bbox", default=None, help="xmin,ymin,xmax,ymax (default: SF)")
 @click.option("--release", default=None, help=f"Overture release (default: {config.OVERTURE_RELEASE})")
 @click.option("--out-dir", default=None, type=click.Path(), help="Output directory (default: ./data)")
-@click.option("--skip", default="", help="Comma-separated: roads,connectors,stations,addresses,places,bikelink")
+@click.option("--skip", default="", help="Comma-separated: roads,connectors,stations,addresses,places,bikelink,racks")
 def sync(bbox: str | None, release: str | None, out_dir: str | None, skip: str):
-    """Download the SF Overture slices + BikeLink lockers and write static data files."""
+    """Download the SF Overture slices + BikeLink lockers + SFMTA bike racks."""
     parsed_bbox = None
     if bbox:
         parsed_bbox = tuple(float(v) for v in bbox.split(","))
@@ -81,6 +81,13 @@ def sync(bbox: str | None, release: str | None, out_dir: str | None, skip: str):
             (out_dir_p / "manifest.json").write_text(json.dumps(manifest, indent=2))
         except Exception as e:
             click.echo(f"bikelink: extraction failed ({e}); any existing slice is kept", err=True)
+    if "racks" not in skip_set:
+        try:
+            n = racks_fetch.extract_racks(bbox4, out_dir_p / "racks.geojson")
+            manifest.setdefault("counts", {})["racks"] = n
+            (out_dir_p / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        except Exception as e:
+            click.echo(f"racks: extraction failed ({e}); any existing slice is kept", err=True)
     click.echo(json.dumps(manifest, indent=2))
 
 

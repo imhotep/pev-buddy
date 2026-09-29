@@ -32,8 +32,12 @@ mode for mopeds) are respected, not just ignored.
 
 Everything — stations, the routing network, and address search — comes from the
 Overture open dataset (no OSM scraping, no Google, no commercial API). Bike
-*parking* comes from [BikeLink](https://bikelink.org) — secure smart lockers
-that keep a PEV or bike safe — served as a second, differently-colored layer.
+*parking* comes from two more open sources: [BikeLink](https://bikelink.org)
+secure smart lockers, and the SFMTA's official
+[bicycle rack inventory](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5)
+(~6k sidewalk racks and on-street corrals). All three POI kinds share one
+clustered map layer: count bubbles when zoomed out, colored pins (amber
+chargers, blue lockers, violet racks) when zoomed in.
 
 ## How it works
 
@@ -49,6 +53,7 @@ that keep a PEV or bike safe — served as a second, differently-colored layer.
    | `places.json` | Overture `place` (all other named places) | ~81k businesses/POIs for place search |
    | `addresses.parquet` | Overture `addresses/address` | ~433k addresses for search |
    | `bikelink.geojson` | [bikelink.org](https://bikelink.org) `/maps` payload | SF secure bike/PEV lockers (eLockers, hangars, group parking), ~29 sites |
+   | `racks.geojson` | [DataSF / SFMTA](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5) SODA API | ~6k sidewalk bike racks + on-street corrals, with space counts and install year |
 
 2. **Routing** (`src/pev_buddy/`) builds one directed *union* graph from
    segments + connectors (every edge any vehicle type may ride) and runs A*
@@ -203,4 +208,7 @@ Map data: [Overture Maps](https://overturemaps.org), released under
 OSM-derived upstream attribution. Basemap tiles: CARTO. BikeLink locker
 locations: [bikelink.org](https://bikelink.org) (© eLOCK Technologies LLC),
 pulled from the public locations page at sync time — the slice is refresh
-stable and small, and a failed pull never breaks the build.
+stable and small, and a failed pull never breaks the build. Bike racks:
+SFMTA's [Bicycle Parking Racks](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5)
+dataset on DataSF (public domain / PDDL), pulled from the Socrata SODA API at
+sync time the same way.

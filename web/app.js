@@ -81,14 +81,24 @@ const fmtMin = (s) => `${Math.max(1, Math.round(s / 60))} min`;
 // ---------------------------------------------------------------- map layers
 
 map.on("load", async () => {
-  let roads, stations, bikelink;
+  let roads, pois;
   try {
     roads = await (await fetch("/data/roads.geojson")).json();
-    stations = await (await fetch("/data/stations.geojson")).json();
-    const bikelinkRes = await fetch("/data/bikelink.geojson");
-    bikelink = bikelinkRes.ok
-      ? await bikelinkRes.json()
-      : { type: "FeatureCollection", features: [] };
+    const stations = await (await fetch("/data/stations.geojson")).json();
+    // BikeLink lockers and SFMTA racks are optional slices — a missing file
+    // just means fewer pins.
+    const bikelink = await fetchFC("/data/bikelink.geojson");
+    const racks = await fetchFC("/data/racks.geojson");
+    // Chargers, lockers, and racks share one clustered source: zoomed out the
+    // map shows count bubbles instead of thousands of overlapping pins.
+    pois = {
+      type: "FeatureCollection",
+      features: [
+        ...stations.features.map((f) => withKind(f, "charger")),
+        ...bikelink.features.map((f) => withKind(f, "locker")),
+        ...racks.features.map((f) => withKind(f, "rack")),
+      ],
+    };
   } catch {
     const el = document.getElementById("map-loading");
     if (el) el.textContent = "Map data failed to load — reload to try again.";
@@ -163,34 +173,62 @@ map.on("load", async () => {
     },
   });
 
-  map.addSource("pev-stations", { type: "geojson", data: stations, promoteId: "id" });
+  map.addSource("pev-pois", {
+    type: "geojson",
+    data: pois,
+    promoteId: "id",
+    cluster: true,
+    // Below this zoom every pin is shown individually; at or above it, nearby
+    // pins collapse into a count bubble.
+    clusterMaxZoom: 14,
+    clusterRadius: 55,
+  });
   map.addLayer({
-    id: "pev-stations",
+    id: "pev-clusters",
     type: "circle",
-    source: "pev-stations",
+    source: "pev-pois",
+    filter: ["has", "point_count"],
     paint: {
-      "circle-radius": 9,
-      "circle-color": "#ffb02e",
+      "circle-color": "#e8eef5",
+      "circle-radius": ["step", ["get", "point_count"], 16, 25, 20, 100, 26],
       "circle-stroke-width": 2.5,
       "circle-stroke-color": "#0c141d",
     },
   });
-
-  // BikeLink lockers — a different color from chargers (blue vs. amber).
-  map.addSource("pev-bikelink", { type: "geojson", data: bikelink, promoteId: "id" });
   map.addLayer({
-    id: "pev-bikelink",
+    id: "pev-cluster-count",
+    type: "symbol",
+    source: "pev-pois",
+    filter: ["has", "point_count"],
+    layout: {
+      "text-field": ["get", "point_count_abbreviated"],
+      "text-font": ["Open Sans Bold"],
+      "text-size": 13,
+    },
+    paint: { "text-color": "#0c141d" },
+  });
+  map.addLayer({
+    id: "pev-pois",
     type: "circle",
-    source: "pev-bikelink",
+    source: "pev-pois",
+    filter: ["!", ["has", "point_count"]],
     paint: {
-      "circle-radius": 8,
-      "circle-color": "#4da3ff",
-      "circle-stroke-width": 2.5,
+      // charger amber, locker blue, rack violet
+      "circle-color": [
+        "match", ["get", "kind"],
+        "charger", "#ffb02e",
+        "locker", "#4da3ff",
+        "rack", "#b48cff",
+        "#ffb02e",
+      ],
+      // Racks number in the thousands — keep their pins smaller.
+      "circle-radius": ["match", ["get", "kind"], "rack", 5, 9],
+      "circle-stroke-width": 2,
       "circle-stroke-color": "#0c141d",
     },
   });
 
-  const clickable = ["pev-bikelink", "pev-stations"];
+  const clickable = ["pev-pois", "pev-clusters"];
   map.on("mousemove", (e) => {
     const over = map.queryRenderedFeatures(e.point, { layers: clickable }).length > 0;
     map.getCanvas().style.cursor = over ? "pointer" : "";
@@ -199,6 +237,15 @@ map.on("load", async () => {
   const loading = document.getElementById("map-loading");
   if (loading) loading.remove();
 });
+
+async function fetchFC(url) {
+  const res = await fetch(url);
+  return res.ok ? await res.json() : emptyFC();
+}
+
+function withKind(f, kind) {
+  return { ...f, properties: { ...f.properties, kind } };
+}
 
 function emptyFC() {
   return { type: "FeatureCollection", features: [] };
@@ -323,6 +370,44 @@ function showBikeLinkPopup(b) {
       ? { kind: "bikelink", station_id: b.id, lat: b.lat, lon: b.lon, label }
       : { kind: "coords", lat: b.lat, lon: b.lon, label };
     setEnd(ref);
+    promptStartIfMissing();
+  });
+  card.appendChild(btn);
+
+  popup.setDOMContent(card).addTo(map);
+  return popup;
+}
+
+// Build a details bubble for an SFMTA bike rack (sidewalk racks and corrals).
+function showRackPopup(r) {
+  const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 14 }).setLngLat([r.lon, r.lat]);
+
+  const card = document.createElement("div");
+  card.className = "bubble";
+
+  const title = document.createElement("div");
+  title.className = "bubble-title";
+  title.textContent = r.name || "Bike rack";
+
+  const meta = document.createElement("div");
+  meta.className = "bubble-meta";
+  const bits = [];
+  if (r.landmark) bits.push(r.landmark);
+  if (r.spaces) bits.push(`${r.spaces} spaces`);
+  else if (r.racks) bits.push(`${r.racks} rack${r.racks === 1 ? "" : "s"}`);
+  if (r.placement) bits.push(`${r.placement} placement`);
+  if (r.install_yr) bits.push(`installed ${r.install_yr}`);
+  meta.textContent = bits.length ? bits.join(" · ") : "No details available";
+
+  card.append(title, meta);
+
+  const btn = document.createElement("button");
+  btn.className = "bubble-route";
+  btn.textContent = "Navigate here";
+  btn.addEventListener("click", () => {
+    popup.remove();
+    // The router doesn't know rack ids — route to the coordinates.
+    setEnd({ kind: "coords", lat: r.lat, lon: r.lon, label: r.name || "Bike rack" });
     promptStartIfMissing();
   });
   card.appendChild(btn);
@@ -511,16 +596,20 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest(".search")) hideSearchResults();
 });
 
-// map click: a charger shows its bubble; empty space sets start (if a
-// destination exists) or destination. While a route is on the map, clicks do
-// nothing (pan only) so the route can't be accidentally edited.
+// map click: a pin shows its bubble; a count bubble zooms in (handled by the
+// pev-clusters handler below); empty space sets start (if a destination
+// exists) or destination. While a route is on the map, clicks do nothing
+// (pan only) so the route can't be accidentally edited.
 map.on("click", (e) => {
   if (state.routeShown) return;
-  const feats = map.queryRenderedFeatures(e.point, { layers: ["pev-bikelink", "pev-stations"] });
+  // Cluster clicks are the zoom handler's job — don't treat them as empty space.
+  if (map.queryRenderedFeatures(e.point, { layers: ["pev-clusters"] }).length) return;
+  const feats = map.queryRenderedFeatures(e.point, { layers: ["pev-pois"] });
   if (feats.length) {
     const f = feats[0];
     const p = f.properties || {};
-    if (f.layer && f.layer.id === "pev-bikelink") {
+    const ll = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+    if (p.kind === "locker") {
       showBikeLinkPopup({
         id: f.id,
         name: p.name,
@@ -528,8 +617,18 @@ map.on("click", (e) => {
         address: p.address,
         num_spaces: p.num_spaces,
         access_devices: p.access_devices,
-        lat: f.geometry.coordinates[1],
-        lon: f.geometry.coordinates[0],
+        ...ll,
+      });
+    } else if (p.kind === "rack") {
+      showRackPopup({
+        id: f.id,
+        name: p.name,
+        landmark: p.landmark,
+        placement: p.placement,
+        racks: p.racks,
+        spaces: p.spaces,
+        install_yr: p.install_yr,
+        ...ll,
       });
     } else {
       showStationPopup({
@@ -539,8 +638,7 @@ map.on("click", (e) => {
         address: p.address,
         phone: p.phone,
         website: p.website,
-        lat: f.geometry.coordinates[1],
-        lon: f.geometry.coordinates[0],
+        ...ll,
       });
     }
     return;
@@ -551,6 +649,16 @@ map.on("click", (e) => {
     setEnd(ref);
     promptStartIfMissing();
   }
+});
+
+// Click a count bubble: zoom in until it breaks apart.
+map.on("click", "pev-clusters", (e) => {
+  const f = map.queryRenderedFeatures(e.point, { layers: ["pev-clusters"] })[0];
+  if (!f) return;
+  map
+    .getSource("pev-pois")
+    .getClusterExpansionZoom(f.properties.cluster_id)
+    .then((zoom) => map.easeTo({ center: f.geometry.coordinates, zoom, ...FLY }));
 });
 
 // When a destination is chosen but there is no start, nudge the user.
