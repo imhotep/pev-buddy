@@ -3,7 +3,7 @@
   --panel: #17222f;
   --panel-2: #1d2b3a;
   --text: #e8eef5;
-  --muted: #93a4b8;
+  --muted: #a9bbce;
   --accent: #35d07f;
   --route: #ffb02e;
   --border: #2a3a4d;
@@ -191,6 +191,14 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 
 .hidden { display: none !important; }
 
+button:focus-visible,
+select:focus-visible,
+a:focus-visible,
+#steps li:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 #steps-drawer {
   position: absolute;
   right: 16px;
@@ -254,7 +262,7 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 #steps li.arrive .idx { background: var(--route); color: #1a1a1a; border-color: var(--route); }
 #steps li .dist { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 
-.maplibre-popup-content {
+.maplibregl-popup-content {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -264,8 +272,17 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
   max-width: 250px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
-.maplibre-popup-tip { border-top-color: var(--panel-2); }
-.maplibre-popup-close-button { color: var(--muted); font-size: 18px; }
+/* MapLibre's own stylesheet colors the tip per anchor class at higher
+   specificity, so each anchor needs its own override to match the popup. */
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--panel-2); }
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--panel-2); }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--panel-2); }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--panel-2); }
+.maplibregl-popup-close-button { color: var(--muted); font-size: 18px; }
 .bubble-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; padding-right: 12px; }
 .bubble-meta { color: var(--muted); line-height: 1.45; font-size: 12.5px; }
 .bubble-link {
@@ -290,6 +307,10 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 }
 .bubble-route:hover { filter: brightness(1.1); }
 .bubble-route:disabled { opacity: 0.5; cursor: wait; }
+
+@media (prefers-reduced-motion: reduce) {
+  #map-loading .spinner { animation: none; }
+}
 
 @media (max-width: 760px) {
   #map { inset: 0; }

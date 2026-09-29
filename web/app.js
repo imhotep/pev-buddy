@@ -1,6 +1,10 @@
 "use strict";
 
 const SF_CENTER = [-122.4194, 37.7749];
+// Users who prefer reduced motion get instant map jumps instead of animated
+// flyTo/fitBounds transitions.
+const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const FLY = REDUCED_MOTION ? { duration: 0 } : {};
 // City of San Francisco extent — the map can't pan or zoom out beyond this.
 const SF_BOUNDS = [
   [-122.52, 37.7],
@@ -380,7 +384,7 @@ function useMyLocation(which) {
       const ref = { kind: "coords", lat: pos.coords.latitude, lon: pos.coords.longitude, label: "My location" };
       if (which === "end") setEnd(ref);
       else setStart(ref);
-      map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 14 });
+      map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 14, ...FLY });
     },
     () => alert("Could not get your location."),
     { enableHighAccuracy: true, timeout: 8000 }
@@ -441,14 +445,14 @@ async function runSearch(q) {
           };
           if (kind === "start") setStart(ref);
           else setEnd(ref);
-          map.flyTo({ center: [r.lon, r.lat], zoom: 15 });
+          map.flyTo({ center: [r.lon, r.lat], zoom: 15, ...FLY });
           searchResults.classList.add("hidden");
         });
         row.appendChild(b);
       }
       div.appendChild(row);
       div.addEventListener("click", () => {
-        map.flyTo({ center: [r.lon, r.lat], zoom: 15 });
+        map.flyTo({ center: [r.lon, r.lat], zoom: 15, ...FLY });
         searchResults.classList.add("hidden");
       });
       searchResults.appendChild(div);
@@ -571,7 +575,7 @@ function renderRoute(data) {
   if (data.path.length) {
     const b = map.getBounds();
     for (const [lon, lat] of data.path) b.extend([lon, lat]);
-    map.fitBounds(b, { padding: { top: 60, bottom: 60, left: 380, right: 60 }, duration: 600 });
+    map.fitBounds(b, { padding: { top: 60, bottom: 60, left: 380, right: 60 }, duration: REDUCED_MOTION ? 0 : 600 });
   }
 
   const summary = document.getElementById("route-summary");
@@ -607,6 +611,13 @@ function renderRoute(data) {
     dist.textContent = s.maneuver === "depart" || s.maneuver === "arrive" ? "" : fmtMi(s.distance_m);
     li.append(idx, txt, dist);
     li.addEventListener("click", () => selectStep(li, s));
+    li.tabIndex = 0;
+    li.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectStep(li, s);
+      }
+    });
     ol.appendChild(li);
   }
   document.getElementById("steps-title").textContent = "Turn-by-turn";
@@ -649,9 +660,9 @@ function selectStep(li, step) {
   if (step.geometry && step.geometry.length > 1) {
     const b = map.getBounds();
     for (const c of step.geometry) b.extend(c);
-    map.fitBounds(b, { padding: { top: 80, bottom: 80, left: 380, right: 340 }, maxZoom: 17, duration: 500 });
+    map.fitBounds(b, { padding: { top: 80, bottom: 80, left: 380, right: 340 }, maxZoom: 17, duration: REDUCED_MOTION ? 0 : 500 });
   } else if (step.turn_point) {
-    map.flyTo({ center: step.turn_point, zoom: 16, duration: 500 });
+    map.flyTo({ center: step.turn_point, zoom: 16, duration: REDUCED_MOTION ? 0 : 500 });
   }
 }
 
