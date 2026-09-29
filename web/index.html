@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PEV Buddy — SF charging &amp; e-bike routes on Overture Maps</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23ffb02e'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css?v=13" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+</head>
+<body>
+  <aside id="sidebar">
+    <header>
+      <h1>PEV Buddy</h1>
+      <p class="tagline">EV charging &amp; e-bike routes in San Francisco, built on Overture Maps data.</p>
+    </header>
+
+    <div class="search">
+      <input id="search" type="text" placeholder="Search SF — address, business, or place…" autocomplete="off" />
+      <div id="search-results" class="hidden"></div>
+    </div>
+
+    <section id="trip">
+      <div class="trip-caption">Vehicle type</div>
+      <select id="vehicle" class="vehicle-select" aria-label="Vehicle type"></select>
+      <div id="vehicle-desc" class="vehicle-desc"></div>
+      <div class="trip-row">
+        <span class="dot start"></span>
+        <div class="trip-labels">
+          <div class="trip-caption">Start</div>
+          <div id="start-label" class="trip-value">Not set — search or click the map</div>
+          <button id="use-location" class="mini">Use my location</button>
+        </div>
+      </div>
+      <div class="trip-row">
+        <span class="dot end"></span>
+        <div class="trip-labels">
+          <div class="trip-caption">Destination</div>
+          <div id="end-label" class="trip-value">Not set — search, click the map, or a pin</div>
+          <button id="use-location-end" class="mini">Use my location</button>
+        </div>
+      </div>
+      <button id="reset-route" class="mini">Reset</button>
+      <div id="route-summary" class="hidden"></div>
+    </section>
+
+    <footer>
+      Map data ©
+      <a href="https://overturemaps.org" target="_blank" rel="noopener">Overture Maps</a>
+      (CDLA-Permissive-2.0) &amp; OSM contributors ·
+      <a href="https://bikelink.org" target="_blank" rel="noopener">BikeLink</a> locker locations © eLOCK Technologies LLC ·
+      Routes are e-bike guidance, not a legal navigation device.
+    </footer>
+  </aside>
+  <main id="map"></main>
+  <button id="show-steps" class="hidden">Show steps</button>
+  <div id="steps-drawer" class="hidden">
+    <div class="steps-head">
+      <button id="steps-close">Hide steps</button>
+      <div class="steps-heading">
+        <span id="steps-title"></span>
+        <small>Click a step to highlight it on the map</small>
+      </div>
+    </div>
+    <ol id="steps"></ol>
+  </div>
+  <script src="app.js?v=13"></script>
+</body>
+</html>

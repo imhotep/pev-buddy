@@ -1,0 +1,62 @@
+"""BikeLink locker access (bikelink.org static slice)."""
+
+from __future__ import annotations
+
+import orjson
+from pathlib import Path
+
+from . import config
+
+
+class BikeLinkStore:
+    def __init__(self, path: Path | None = None):
+        path = path or config.DATA_DIR / "bikelink.geojson"
+        with open(path, "rb") as f:
+            data = orjson.loads(f.read())
+        self.features = data.get("features", [])
+        self.places = []
+        for f in self.features:
+            p = f["properties"]
+            self.places.append(
+                {
+                    "id": f.get("id"),
+                    "name": p.get("name"),
+                    "facility_type": p.get("facility_type"),
+                    "address": p.get("address"),
+                    "city": p.get("city"),
+                    "num_spaces": p.get("num_spaces"),
+                    "access_devices": p.get("access_devices") or [],
+                    "lon": f["geometry"]["coordinates"][0],
+                    "lat": f["geometry"]["coordinates"][1],
+                }
+            )
+
+    def __len__(self) -> int:
+        return len(self.places)
+
+    def all(self) -> list[dict]:
+        return self.places
+
+    def nearest(self, lon: float, lat: float, limit: int = 5) -> list[dict]:
+        import math
+
+        ranked = sorted(
+            self.places,
+            key=lambda s: math.hypot((s["lon"] - lon) * math.cos(math.radians(lat)), s["lat"] - lat),
+        )
+        out = []
+        for s in ranked[:limit]:
+            item = dict(s)
+            item["distance_m"] = _haversine(lon, lat, s["lon"], s["lat"])
+            out.append(item)
+        return out
+
+
+def _haversine(a_lon, a_lat, b_lon, b_lat) -> float:
+    import math
+
+    p1, p2 = math.radians(a_lat), math.radians(b_lat)
+    dp = math.radians(b_lat - a_lat)
+    dl = math.radians(b_lon - a_lon)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371000.0 * math.asin(math.sqrt(h))
