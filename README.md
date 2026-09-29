@@ -125,8 +125,11 @@ uvicorn pev_buddy.api:app --reload
 # open http://localhost:8000
 ```
 
-Tests: `pytest` (88 tests, all offline/synthetic — no S3 calls). CI runs the
-suite on every push (`.github/workflows/test.yml`).
+Tests: `pytest` (94 tests). The Python suite is offline/synthetic (no S3
+calls); `tests/test_frontend.py` drives the real UI in headless Chrome via
+Playwright (system Chrome, `channel="chrome"` — no browser download) and
+skips automatically when Chrome is unavailable. CI runs the suite on every
+push (`.github/workflows/test.yml`).
 
 ## Deploy
 
