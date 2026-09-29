@@ -130,7 +130,7 @@ uvicorn pev_buddy.api:app --reload
 # open http://localhost:8000
 ```
 
-Tests: `pytest` (94 tests). The Python suite is offline/synthetic (no S3
+Tests: `pytest` (97 tests). The Python suite is offline/synthetic (no S3
 calls); `tests/test_frontend.py` drives the real UI in headless Chrome via
 Playwright (system Chrome, `channel="chrome"` — no browser download) and
 skips automatically when Chrome is unavailable. CI runs the suite on every
@@ -144,6 +144,23 @@ service: the build command installs dependencies and runs
 runtime bundle — `data/` is gitignored), and the start command serves the
 API and the static UI from one process (`uvicorn pev_buddy.api:app`). The
 512 MB free instance fits because of the runtime bundle above.
+
+### Self-host on a VPS (Tailscale Funnel)
+
+For a no-cold-start alternative, `deploy/setup.sh` installs or updates the
+app on a Debian/Ubuntu VPS and exposes **only** it publicly via
+[Tailscale Funnel](https://tailscale.com/kb/1223/funnel) — the rest of the
+node stays tailnet-only:
+
+```bash
+git clone https://github.com/imhotep/pev-buddy.git && bash pev-buddy/deploy/setup.sh
+```
+
+It installs deps, builds the data bundle (`--sync` to refresh it later),
+registers a systemd unit serving uvicorn on `127.0.0.1:8000`, and runs
+`tailscale funnel --bg 8000` — the app is then live at
+`https://<node>.<tailnet>.ts.net` with TLS handled by Tailscale. A 1 GB VPS
+is enough (the app holds ~316 MB warm).
 
 ## Decisions & judgment calls
 
