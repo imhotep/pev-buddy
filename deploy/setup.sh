@@ -69,6 +69,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now pev-buddy
 sudo systemctl restart pev-buddy
 
-# --- public ingress ---
-tailscale funnel --bg "$PORT"
+# --- public ingress (serve config needs root unless tailscale operator is set) ---
+sudo tailscale funnel --bg "$PORT"
 tailscale funnel status
