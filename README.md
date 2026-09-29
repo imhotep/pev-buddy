@@ -1,8 +1,8 @@
 # PEV Buddy
 
-**Find EV charging in San Francisco and ride there the sensible way — turn-by-turn
-e-bike/e-scooter/moped routing that weighs every street by its speed, built
-entirely on [Overture Maps](https://overturemaps.org) data.**
+**PEV Buddy routes e-bikes, e-scooters, and mopeds across San Francisco to EV
+charging — turn-by-turn, weighing every street by its speed and your vehicle's
+legal access — built entirely on [Overture Maps](https://overturemaps.org) data.**
 
 [![tests](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml/badge.svg)](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml)
 
@@ -135,6 +135,38 @@ service: the build command installs dependencies and runs
 runtime bundle — `data/` is gitignored), and the start command serves the
 API and the static UI from one process (`uvicorn pev_buddy.api:app`). The
 512 MB free instance fits because of the runtime bundle above.
+
+## Decisions & judgment calls
+
+The trade-offs section below lists what I cut; this one is why the core design
+looks the way it does.
+
+- **Soft costs, not hard filters.** Streets are priced by category (bike lane,
+  quiet, shared, arterial) instead of forbidden outright, so a destination
+  walled in by fast roads still gets a route — with a visible warning — rather
+  than a dead "no route" error. Only genuinely unridden classes (stairs,
+  bridleways, > 45 mph) are excluded.
+- **One union graph + per-vehicle bitmaps.** All seven routable vehicle types
+  share a single directed graph; legality per type is a 1-byte bitmap per edge
+  computed once at build time. Routing for any vehicle is then a bitmap check
+  plus a cost lookup — no per-vehicle graphs, no runtime rule evaluation.
+- **Compile at sync time, not boot time.** The graph and geocoder are packed
+  into numpy/vocab-coded bundles during `sync` (on the build machine), so the
+  server never parses 39 MB of geojson or imports pyarrow. Measured on the
+  full SF slice: ~960 MB → ~316 MB RSS and 1.6 s → 0.4 s warm-up, which is
+  exactly what makes the free 512 MB Render instance viable. Parity between
+  the bundle and raw-slice paths is pinned by tests, not assumed.
+- **Vehicle law as data.** CA vehicle types (speed caps, road-access rules,
+  bike-lane exemptions, Overture access mode) live in one config table that
+  the UI, API, and router all read; per-city overrides can layer on without
+  touching the router.
+- **Honesty over polish.** No live traffic, no plug counts, no availability —
+  the UI surfaces exactly what the data knows and links out for the rest,
+  including a visible disclaimer that routes are advisory.
+
+Built with AI pair-programming throughout (explicitly allowed by the
+assignment); the problem choice, architecture, design decisions above, and the
+measurement-driven verification are mine.
 
 ## Key trade-offs & cuts (v1)
 
