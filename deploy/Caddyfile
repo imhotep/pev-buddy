@@ -1,0 +1,17 @@
+# PEV Buddy behind Caddy on a VPS — automatic HTTPS via Let's Encrypt.
+#
+# 1. Point your (sub)domain at the VPS public IP with an A record.
+# 2. Open TCP 80 + 443 in the host firewall (Lightsail: Networking tab).
+# 3. Replace pev.EXAMPLE.COM with the real domain and copy to
+#    /etc/caddy/Caddyfile, then: sudo systemctl enable --now caddy
+#
+# Caddy obtains and renews the TLS certificate by itself on first start.
+
+pev.EXAMPLE.COM {
+	reverse_proxy 127.0.0.1:8765
+}
+
+# Optional: a second subdomain for another app on the same box.
+# app.EXAMPLE.COM {
+# 	reverse_proxy 127.0.0.1:8000
+# }
