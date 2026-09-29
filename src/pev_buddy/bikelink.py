@@ -13,9 +13,8 @@ class BikeLinkStore:
         path = path or config.DATA_DIR / "bikelink.geojson"
         with open(path, "rb") as f:
             data = orjson.loads(f.read())
-        self.features = data.get("features", [])
         self.places = []
-        for f in self.features:
+        for f in data.get("features", []):
             p = f["properties"]
             self.places.append(
                 {

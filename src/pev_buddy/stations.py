@@ -13,9 +13,8 @@ class StationStore:
         path = path or config.DATA_DIR / "stations.geojson"
         with open(path, "rb") as f:
             data = orjson.loads(f.read())
-        self.features = data.get("features", [])
         self.stations = []
-        for f in self.features:
+        for f in data.get("features", []):
             p = f["properties"]
             self.stations.append(
                 {
@@ -50,9 +49,6 @@ class StationStore:
             item["distance_m"] = _haversine(lon, lat, s["lon"], s["lat"])
             out.append(item)
         return out
-
-    def as_geojson(self) -> bytes:
-        return orjson.dumps({"type": "FeatureCollection", "features": self.features})
 
 
 def _haversine(a_lon, a_lat, b_lon, b_lat) -> float:

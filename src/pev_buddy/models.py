@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from . import config
+
 
 class PointRef(BaseModel):
     """A start/end reference: coords, a geocode query, or a station id."""
@@ -18,7 +20,7 @@ class PointRef(BaseModel):
 class RouteRequest(BaseModel):
     start: PointRef
     end: PointRef
-    vehicle: str = "scooter"  # CA vehicle type id, e.g. "scooter" | "ebike_c3" | "moped"
+    vehicle: str = config.DEFAULT_VEHICLE  # CA vehicle type id, e.g. "scooter" | "ebike_c3" | "moped"
 
 
 class StationOut(BaseModel):

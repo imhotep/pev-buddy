@@ -50,6 +50,16 @@ that keep a PEV or bike safe — served as a second, differently-colored layer.
    vehicle type gets a 1-byte allow bitmap per edge (and per node, for
    snapping), so per-vehicle routing is a bitmap check plus a cost lookup.
 
+   **Runtime bundle.** At the end of `sync`, the graph is compiled once into
+   `graph.npz` + `graph_meta.json` (numpy arrays + vocabulary-coded
+   metadata), and addresses into `addresses.npz` + `addresses_meta.json`.
+   The server loads these directly — no 39 MB geojson parse at boot, no
+   per-row Python dicts, no pyarrow at runtime. Measured on the full SF
+   slice: **~316 MB RSS and ~0.4 s warm-up, vs ~960 MB and 1.6 s** when
+   building from the raw slices — which is what lets the app fit a 512 MB
+   free-tier instance. Byte-level parity between the bundle and raw-slice
+   paths is enforced by tests (`tests/test_bundle.py`).
+
    **CA vehicle types.** All vehicle types are defined as data in
    `src/pev_buddy/config.py` (`VEHICLE_TYPES`); the UI dropdown, the API, and
    the router all read from it. Each type carries its label, description,
@@ -107,7 +117,17 @@ uvicorn pev_buddy.api:app --reload
 # open http://localhost:8000
 ```
 
-Tests: `pytest` (75 tests, all offline/synthetic — no S3 calls).
+Tests: `pytest` (88 tests, all offline/synthetic — no S3 calls). CI runs the
+suite on every push (`.github/workflows/test.yml`).
+
+## Deploy
+
+`render.yaml` defines a single free-tier [Render](https://render.com) web
+service: the build command installs dependencies and runs
+`python -m pev_buddy.sync` (downloads the Overture slice and compiles the
+runtime bundle — `data/` is gitignored), and the start command serves the
+API and the static UI from one process (`uvicorn pev_buddy.api:app`). The
+512 MB free instance fits because of the runtime bundle above.
 
 ## Key trade-offs & cuts (v1)
 

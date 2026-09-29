@@ -5,8 +5,8 @@ Outputs (in the data dir):
   connectors.json     {connector_id: [lon, lat]} — server-side network nodes
   stations.geojson    EV charging stations (place: ev_charging_station)
   places.json         named businesses / POIs for place search
-   addresses.parquet   street addresses for geocoding
-   manifest.json       release, bbox, counts, timestamp
+  addresses.parquet   street addresses for geocoding
+  manifest.json       release, bbox, counts, timestamp
 
 (BikeLink lockers are a separate static slice, written by bikelink_fetch.)
 """
@@ -177,9 +177,7 @@ def extract_roads(bbox, release: str, out_path: Path) -> int:
 
     features = []
     reader = om.record_batch_reader("segment", bbox=bbox, release=release)
-    total = 0
     for batch in tqdm(reader, desc="segments"):
-        total += batch.num_rows
         for row in batch.to_pylist():
             if row.get("subtype") != "road":
                 continue
@@ -214,9 +212,7 @@ def extract_connectors(bbox, release: str, out_path: Path) -> int:
 
     pts = {}
     reader = om.record_batch_reader("connector", bbox=bbox, release=release)
-    total = 0
     for batch in tqdm(reader, desc="connectors"):
-        total += batch.num_rows
         for row in batch.to_pylist():
             cid = row.get("id")
             g = row.get("geometry")
@@ -238,9 +234,7 @@ def extract_stations(bbox, release: str, out_path: Path) -> int:
 
     features = []
     reader = om.record_batch_reader("place", bbox=bbox, release=release)
-    total = 0
     for batch in tqdm(reader, desc="places"):
-        total += batch.num_rows
         for row in batch.to_pylist():
             if row.get("basic_category") != "ev_charging_station":
                 continue
@@ -290,9 +284,7 @@ def extract_places(bbox, release: str, out_path: Path) -> int:
     rows: list = []
     seen: set = set()
     reader = om.record_batch_reader("place", bbox=bbox, release=release)
-    total = 0
     for batch in tqdm(reader, desc="places"):
-        total += batch.num_rows
         for row in batch.to_pylist():
             if row.get("basic_category") == "ev_charging_station":
                 continue
@@ -328,9 +320,7 @@ def extract_addresses(bbox, release: str, out_path: Path) -> int:
 
     streets, numbers, units, postcodes, lons, lats = [], [], [], [], [], []
     reader = om.record_batch_reader("address", bbox=bbox, release=release)
-    total = 0
     for batch in tqdm(reader, desc="addresses"):
-        total += batch.num_rows
         for row in batch.to_pylist():
             g = row.get("geometry")
             street = row.get("street")

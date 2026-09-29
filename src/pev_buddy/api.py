@@ -9,9 +9,10 @@ from pathlib import Path
 
 import orjson
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.gzip import GZipMiddleware
 
 from . import config
 from .bikelink import BikeLinkStore
@@ -80,6 +81,8 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="PEV Buddy", lifespan=lifespan)
+    # roads.geojson is ~39 MB raw — gzip makes the initial map load ~5x lighter
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     def resolve_point(ref: PointRef, kind: str) -> tuple[float, float, str]:
         if ref.station_id:

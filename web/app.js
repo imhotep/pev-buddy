@@ -71,12 +71,19 @@ const fmtMin = (s) => `${Math.max(1, Math.round(s / 60))} min`;
 // ---------------------------------------------------------------- map layers
 
 map.on("load", async () => {
-  const roads = await (await fetch("/data/roads.geojson")).json();
-  const stations = await (await fetch("/data/stations.geojson")).json();
-  const bikelinkRes = await fetch("/data/bikelink.geojson");
-  const bikelink = bikelinkRes.ok
-    ? await bikelinkRes.json()
-    : { type: "FeatureCollection", features: [] };
+  let roads, stations, bikelink;
+  try {
+    roads = await (await fetch("/data/roads.geojson")).json();
+    stations = await (await fetch("/data/stations.geojson")).json();
+    const bikelinkRes = await fetch("/data/bikelink.geojson");
+    bikelink = bikelinkRes.ok
+      ? await bikelinkRes.json()
+      : { type: "FeatureCollection", features: [] };
+  } catch {
+    const el = document.getElementById("map-loading");
+    if (el) el.textContent = "Map data failed to load — reload to try again.";
+    return;
+  }
 
   map.addSource("pev-roads", { type: "geojson", data: roads });
   map.addLayer({
@@ -178,6 +185,9 @@ map.on("load", async () => {
     const over = map.queryRenderedFeatures(e.point, { layers: clickable }).length > 0;
     map.getCanvas().style.cursor = over ? "pointer" : "";
   });
+
+  const loading = document.getElementById("map-loading");
+  if (loading) loading.remove();
 });
 
 function emptyFC() {
