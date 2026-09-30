@@ -6,8 +6,9 @@ legal access — built entirely on [Overture Maps](https://overturemaps.org) dat
 
 [![tests](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml/badge.svg)](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml)
 
-**Live demo: [pev-buddy.onrender.com](https://pev-buddy.onrender.com)** (free
-tier — give it a few seconds to wake up)
+**Live demo: [pev-buddy.anislab.com](https://pev-buddy.anislab.com)** (VPS +
+Caddy, always on) · mirror: [pev-buddy.onrender.com](https://pev-buddy.onrender.com)
+(free tier — give it a few seconds to wake up)
 
 ![PEV Buddy: an e-scooter route across San Francisco with turn-by-turn steps](docs/screenshot.png)
 
