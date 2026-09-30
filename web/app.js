@@ -5,6 +5,9 @@ const SF_CENTER = [-122.4194, 37.7749];
 // flyTo/fitBounds transitions.
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const FLY = REDUCED_MOTION ? { duration: 0 } : {};
+// Mobile-only navigation aids: live location dot, heading-up map rotation,
+// and a screen wake lock while a route is up. Desktop gets none of these.
+const IS_MOBILE = matchMedia("(pointer: coarse)").matches;
 // City of San Francisco extent — the map can't pan or zoom out beyond this.
 const SF_BOUNDS = [
   [-122.52, 37.7],
@@ -24,6 +27,18 @@ const map = new maplibregl.Map({
 });
 map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+// Live location dot (with heading cone) — mobile only, where it matters for
+// actually riding the route.
+let geolocateControl = null;
+if (IS_MOBILE) {
+  geolocateControl = new maplibregl.GeolocateControl({
+    positionOptions: { enableHighAccuracy: true },
+    trackUserLocation: true,
+    showUserLocation: true,
+  });
+  map.addControl(geolocateControl, "top-right");
+}
 // MapLibre labels the canvas just "Map" — give assistive tech a real summary.
 // Keyboard pan/zoom (+/-/arrows) is built into the canvas itself.
 map.getCanvas().setAttribute(
@@ -456,6 +471,9 @@ function resetTrip() {
   document.getElementById("route-summary").classList.add("hidden");
   document.getElementById("steps-drawer").classList.add("hidden");
   syncStepsToggle();
+  // Leaving navigation mode: face north again and let the screen sleep.
+  map.easeTo({ bearing: 0, ...FLY });
+  releaseWakeLock();
 }
 document.getElementById("reset-route").addEventListener("click", resetTrip);
 
@@ -669,6 +687,61 @@ function promptStartIfMissing() {
   summary.innerHTML = `<span class="warn">Pick a start point</span> — use “Use my location”, the search box, or click the map.`;
 }
 
+// ------------------------------------------------------- mobile navigation
+
+// iOS 13+ requires a user gesture for compass access — ask on the first tap.
+function ensureOrientation() {
+  if (!IS_MOBILE || orientBound) return;
+  if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+    DeviceOrientationEvent.requestPermission()
+      .then((p) => {
+        if (p === "granted") bindOrientation();
+      })
+      .catch(() => {});
+  } else {
+    bindOrientation();
+  }
+}
+
+// Heading-up rotation: while a route is shown, the map turns with the rider
+// so the upcoming turn is always "straight ahead". iOS gives compass heading
+// directly; elsewhere derive it from the absolute alpha angle.
+let orientBound = false;
+function bindOrientation() {
+  if (orientBound) return;
+  orientBound = true;
+  const handler = (e) => {
+    if (!state.routeShown) return;
+    let hdg = null;
+    if (typeof e.webkitCompassHeading === "number") hdg = e.webkitCompassHeading;
+    else if (e.absolute && typeof e.alpha === "number") hdg = 360 - e.alpha;
+    if (hdg === null || Number.isNaN(hdg)) return;
+    map.easeTo({ bearing: hdg, duration: 300 });
+  };
+  window.addEventListener("deviceorientationabsolute", handler, true);
+  window.addEventListener("deviceorientation", handler, true);
+}
+if (IS_MOBILE) window.addEventListener("pointerdown", ensureOrientation);
+
+// Keep the screen awake while navigating (Screen Wake Lock API).
+let wakeLock = null;
+async function acquireWakeLock() {
+  if (!IS_MOBILE || !("wakeLock" in navigator) || wakeLock) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+  } catch {
+    /* denied or unsupported — non-fatal */
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) wakeLock.release().catch(() => {});
+  wakeLock = null;
+}
+// The lock is dropped when the tab hides; re-acquire on return.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.routeShown) acquireWakeLock();
+});
+
 // ---------------------------------------------------------------- routing
 
 async function computeRoute() {
@@ -717,6 +790,11 @@ function refToApi(ref) {
 
 function renderRoute(data) {
   state.routeShown = true;
+  if (IS_MOBILE) {
+    // Start tracking the rider and keep the screen on for the ride.
+    if (geolocateControl) geolocateControl.trigger();
+    acquireWakeLock();
+  }
   const fc = {
     type: "Feature",
     geometry: { type: "LineString", coordinates: data.path },
@@ -832,3 +910,6 @@ function escapeHtml(s) {
   d.textContent = s;
   return d.innerHTML;
 }
+
+// PWA: cache the app shell for offline loads and make the app installable.
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");

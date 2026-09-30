@@ -1,8 +1,10 @@
 # PEV Buddy
 
-**PEV Buddy routes e-bikes, e-scooters, and mopeds across San Francisco to EV
-charging — turn-by-turn, weighing every street by its speed and your vehicle's
-legal access — built entirely on [Overture Maps](https://overturemaps.org) data.**
+**PEV Buddy is turn-by-turn navigation for e-bikes, e-scooters, and mopeds in
+San Francisco — from anywhere to anywhere, weighing every street by its speed
+and your vehicle's legal access — plus a map of EV chargers, secure BikeLink
+lockers, and ~6k sidewalk bike racks along the way. Built entirely on
+[Overture Maps](https://overturemaps.org) and other open data.**
 
 [![tests](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml/badge.svg)](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml)
 
@@ -14,10 +16,11 @@ Caddy, always on) · mirror: [pev-buddy.onrender.com](https://pev-buddy.onrender
 
 ## Why this
 
-San Francisco's EV charging map is a scatter of stations, but the real question
-an e-bike or e-scooter rider asks is *"how do I actually get there without ending
-up in 45 mph traffic?"* PEV Buddy answers both in one product: it lists SF's
-charging stations **and** computes a route to each one. Instead of a hard
+Riding an e-bike or e-scooter in San Francisco means asking *"how do I get
+there without ending up in 45 mph traffic?"* — and existing nav apps don't
+answer it. PEV Buddy is built around that question: it routes between any two
+points in the city (an address, a place, a charger, a rack, or a tap on the
+map) with turn-by-turn steps. Instead of a hard
 "≤ 25 mph only" filter, the router is **speed-differential** and
 **vehicle-aware**: you pick your CA vehicle type (e-scooter, e-skateboard,
 EUC, Class 1/2/3 e-bike, moped — e-motos are shown but blocked, since they're
@@ -31,10 +34,9 @@ anything above 45 mph is excluded outright. One-way streets, prohibited
 turns, and Overture access rules (bicycle mode for most types, motorcycle
 mode for mopeds) are respected, not just ignored.
 
-Everything — stations, the routing network, and address search — comes from the
-Overture open dataset (no OSM scraping, no Google, no commercial API). Bike
-*parking* comes from two more open sources: [BikeLink](https://bikelink.org)
-secure smart lockers, and the SFMTA's official
+Charging and parking are part of the ride, so they're on the same map:
+SF's EV chargers from Overture, [BikeLink](https://bikelink.org) secure
+lockers, and the SFMTA's official
 [bicycle rack inventory](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5)
 (~6k sidewalk racks and on-street corrals). All three POI kinds share one
 clustered map layer: count bubbles when zoomed out, colored pins (amber

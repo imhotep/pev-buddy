@@ -1,5 +1,6 @@
 """Static wiring checks for the web UI (no browser required)."""
 
+import json
 import re
 from pathlib import Path
 
@@ -69,6 +70,20 @@ def test_cache_bust_versions_match():
     css_v = re.search(r"style\.css\?v=(\d+)", html).group(1)
     js_v = re.search(r"app\.js\?v=(\d+)", html).group(1)
     assert css_v == js_v, "style.css and app.js should share one cache-bust version"
+
+
+def test_pwa_wiring():
+    html = _text("index.html")
+    assert 'rel="manifest"' in html, "index.html never links the web app manifest"
+    manifest = json.loads((WEB / "manifest.webmanifest").read_text())
+    assert manifest["display"] == "standalone"
+    assert any(i["sizes"] == "192x192" for i in manifest["icons"])
+    assert any(i["sizes"] == "512x512" for i in manifest["icons"])
+    assert (WEB / "sw.js").exists(), "service worker missing"
+    js = _text("app.js")
+    assert "serviceWorker" in js, "app.js never registers the service worker"
+    assert "GeolocateControl" in js, "mobile location pin missing"
+    assert "wakeLock" in js, "screen wake lock missing"
 
 
 def test_poi_layers_clustered_with_distinct_kind_colors():
