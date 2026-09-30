@@ -5,9 +5,10 @@
 PEV Buddy is a FastAPI app that does vehicle-aware routing over San Francisco's
 road network (plus geocoding, POI search, charging stations). The whole network
 lives in memory: 105k nodes, 277k directed edges, ~68k road segments, 433k
-addresses, and 81k named places. Deploying to Render's free tier meant fitting
-into a **512 MB RAM** instance — and the app measured **~960 MB** at steady
-state. This document explains why, and what we did about it.
+addresses, and 81k named places. The goal was to run on the smallest possible
+VPS, ideally sharing the box with other apps — and the app measured
+**~960 MB** at steady state. This document explains why, and what we did about
+it.
 
 ## Why the footprint was so high
 
@@ -72,9 +73,9 @@ and have the server load compact, pre-digested artifacts.**
 - The `/data/*.geojson` endpoints stream from disk with `FileResponse`
   instead of a 39 MB `read_bytes()` spike per request, and `GZipMiddleware`
   cuts the map's initial download from 39 MB to 8.4 MB over the wire.
-- `sync.py` emits all bundle artifacts after fetching, so Render's build
-  command (`python -m pev_buddy.sync`) regenerates them on every deploy with
-  no config changes.
+- `sync.py` emits all bundle artifacts after fetching, so the deploy flow
+  (`python -m pev_buddy.sync`) regenerates them on every update with no
+  config changes.
 
 ## Results
 
@@ -85,7 +86,8 @@ and have the server load compact, pre-digested artifacts.**
 | Warm-up time | 1.6 s | **0.43 s** |
 | Cross-city route latency | 129 ms | **108 ms** |
 
-Fits Render's 512 MB free tier with ~200 MB of headroom.
+Comfortably fits a 512 MB instance with ~200 MB of headroom — and shares a
+1–2 GB VPS with other apps without contention.
 
 ## How we verified no functionality was lost
 

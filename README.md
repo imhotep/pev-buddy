@@ -8,9 +8,9 @@ lockers, and ~6k sidewalk bike racks along the way. Built entirely on
 
 [![tests](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml/badge.svg)](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml)
 
-**Live demo: [pev-buddy.anislab.com](https://pev-buddy.anislab.com)** (VPS +
-Caddy, always on) · mirror: [pev-buddy.onrender.com](https://pev-buddy.onrender.com)
-(free tier — give it a few seconds to wake up)
+**Live: [pev-buddy.anislab.com](https://pev-buddy.anislab.com)** — installable
+as a PWA; on phones it adds a live location dot, heading-up map rotation, and
+a screen wake lock while you ride.
 
 ![PEV Buddy: an e-scooter route across San Francisco with turn-by-turn steps](docs/screenshot.png)
 
@@ -71,8 +71,8 @@ chargers, blue lockers, violet racks) when zoomed in.
    The server loads these directly — no 39 MB geojson parse at boot, no
    per-row Python dicts, no pyarrow at runtime. Measured on the full SF
    slice: **~316 MB RSS and ~0.4 s warm-up, vs ~960 MB and 1.6 s** when
-   building from the raw slices — which is what lets the app fit a 512 MB
-   free-tier instance. Byte-level parity between the bundle and raw-slice
+   building from the raw slices — small enough to share a 1–2 GB VPS with
+   other apps. Byte-level parity between the bundle and raw-slice
    paths is enforced by tests (`tests/test_bundle.py`). Full write-up with
    measurements: [docs/memory-optimization.md](docs/memory-optimization.md).
 
@@ -115,13 +115,17 @@ chargers, blue lockers, violet racks) when zoomed in.
    addresses + places/POIs + charging stations, ranked), `/api/geocode`, and
    `/api/stations`.
 
-4. **UI** is a dependency-free vanilla-JS + MapLibre GL single page: dark map
-   with the rideable network drawn, chargers as clickable markers, a vehicle
-   type dropdown (options + description loaded from `/api/vehicles`) with a
-   live description line, a unified search that accepts any address,
-   business, or POI for either start or destination (plus click-anywhere and
-   GPS), and a turn-by-turn panel where each step can be highlighted on the
-   map.
+4. **UI** is a dependency-free vanilla-JS + MapLibre GL single page,
+   installable as a PWA: dark map with the rideable network drawn, all three
+   POI kinds on one clustered layer (count bubbles zoomed out, colored pins
+   zoomed in), a vehicle type dropdown (options + description loaded from
+   `/api/vehicles`) with a live description line, a unified search that
+   accepts any address, business, or POI for either start or destination
+   (plus click-anywhere and GPS), and a turn-by-turn panel where each step can
+   be highlighted on the map. On touch devices, starting a route enters a
+   navigation mode: the panel tucks away behind a cancel button, POIs
+   declutter, the screen stays awake, a live location dot tracks you, and the
+   map rotates heading-up.
 
 ## Run it
 
@@ -133,7 +137,7 @@ uvicorn pev_buddy.api:app --reload
 # open http://localhost:8000
 ```
 
-Tests: `pytest` (97 tests). The Python suite is offline/synthetic (no S3
+Tests: `pytest` (103 tests). The Python suite is offline/synthetic (no S3
 calls); `tests/test_frontend.py` drives the real UI in headless Chrome via
 Playwright (system Chrome, `channel="chrome"` — no browser download) and
 skips automatically when Chrome is unavailable. CI runs the suite on every
@@ -141,35 +145,30 @@ push (`.github/workflows/test.yml`).
 
 ## Deploy
 
-`render.yaml` defines a single free-tier [Render](https://render.com) web
-service: the build command installs dependencies and runs
-`python -m pev_buddy.sync` (downloads the Overture slice and compiles the
-runtime bundle — `data/` is gitignored), and the start command serves the
-API and the static UI from one process (`uvicorn pev_buddy.api:app`). The
-512 MB free instance fits because of the runtime bundle above.
-
-### Self-host on a VPS (Tailscale Funnel)
-
-For a no-cold-start alternative, `deploy/setup.sh` installs or updates the
-app on a Debian/Ubuntu VPS and exposes **only** it publicly via
-[Tailscale Funnel](https://tailscale.com/kb/1223/funnel) — the rest of the
-node stays tailnet-only:
+Production runs on a small VPS: a systemd unit serves uvicorn on
+`127.0.0.1:8765`, and [Caddy](https://caddyserver.com) fronts it with
+automatic Let's Encrypt HTTPS (`deploy/Caddyfile` — one `reverse_proxy` block
+per subdomain, so other apps can share the box). `deploy/setup.sh` installs or
+updates the app on a Debian/Ubuntu VPS (deps, data bundle, systemd unit):
 
 ```bash
 git clone https://github.com/imhotep/pev-buddy.git && bash pev-buddy/deploy/setup.sh
 ```
 
-It installs deps, builds the data bundle (`--sync` to refresh it later),
-registers a systemd unit serving uvicorn on `127.0.0.1:8000`, and runs
-`tailscale funnel --bg 8000` — the app is then live at
-`https://<node>.<tailnet>.ts.net` with TLS handled by Tailscale. A 1 GB VPS
-is enough (the app holds ~316 MB warm).
+It builds the data bundle on first run (`--sync` to refresh it later).
+Building the bundle needs ~1.5 GB free RAM; on a small or busy VPS, build
+locally and push instead: `rsync -az data/ <host>:~/pev-buddy/data/`.
 
-Sharing the node with another public app? Funnel supports ports 443, 8443,
-and 10000 per node, e.g. `PORT=8765 FUNNEL_PORT=8443 bash deploy/setup.sh`
-puts PEV Buddy at `https://<node>.<tailnet>.ts.net:8443` while the other app
-keeps 443. Building the data bundle needs ~1.5 GB free RAM; on a small or
-busy VPS, build locally and push: `rsync -az data/ <host>:~/pev-buddy/data/`.
+### Self-host behind Tailscale
+
+If the box has no public IP (or you don't want to open one), `setup.sh` can
+expose **only** this app publicly via
+[Tailscale Funnel](https://tailscale.com/kb/1223/funnel) — the rest of the
+node stays tailnet-only. The app is then live at
+`https://<node>.<tailnet>.ts.net` with TLS handled by Tailscale. Sharing the
+node with another public app? Funnel supports ports 443, 8443, and 10000 per
+node, e.g. `PORT=8765 FUNNEL_PORT=8443 bash deploy/setup.sh` puts PEV Buddy at
+`https://<node>.<tailnet>.ts.net:8443` while the other app keeps 443.
 
 ## Decisions & judgment calls
 
@@ -188,8 +187,9 @@ looks the way it does.
 - **Compile at sync time, not boot time.** The graph and geocoder are packed
   into numpy/vocab-coded bundles during `sync` (on the build machine), so the
   server never parses 39 MB of geojson or imports pyarrow. Measured on the
-  full SF slice: ~960 MB → ~316 MB RSS and 1.6 s → 0.4 s warm-up, which is
-  exactly what makes the free 512 MB Render instance viable. Parity between
+  full SF slice: ~960 MB → ~316 MB RSS and 1.6 s → 0.4 s warm-up, so the app
+  shares a small VPS with other workloads instead of needing one to itself.
+  Parity between
   the bundle and raw-slice paths is pinned by tests, not assumed.
 - **Vehicle law as data.** CA vehicle types (speed caps, road-access rules,
   bike-lane exemptions, Overture access mode) live in one config table that
@@ -206,7 +206,7 @@ measurement-driven verification are mine.
 ## Key trade-offs & cuts (v1)
 
 - **Static city slice.** Data is extracted once and served from disk (no live
-  Overture queries), which keeps the app fast and free-tier friendly. Stale
+  Overture queries), which keeps the app fast and cheap to host. Stale
   between syncs; re-run `sync` to refresh.
 - **Routing is *advisory*, not live.** No traffic, no closed lanes, no
   bike-signal awareness. Costs are distance × per-(vehicle-type, category)
