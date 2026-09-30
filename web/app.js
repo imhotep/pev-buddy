@@ -710,6 +710,10 @@ function syncNavUI() {
   const nav = IS_MOBILE && state.routeShown;
   document.body.classList.toggle("navigating", nav);
   document.getElementById("cancel-route").classList.toggle("hidden", !nav);
+  // Declutter the map while navigating: POI pins and count bubbles go away.
+  for (const id of ["pev-pois", "pev-clusters", "pev-cluster-count"]) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", state.routeShown ? "none" : "visible");
+  }
 }
 document.getElementById("cancel-route").addEventListener("click", resetTrip);
 

@@ -97,6 +97,15 @@ def test_mobile_navigation_mode_hides_panel_behind_cancel_button():
     assert "body.navigating #sidebar" in mobile
 
 
+def test_poi_layers_hide_while_navigating():
+    # While a route is up, the POI pins and count bubbles declutter the map.
+    js = _text("app.js")
+    nav_body = js.split("function syncNavUI()", 1)[1].split("function ", 1)[0]
+    for layer in ("pev-pois", "pev-clusters", "pev-cluster-count"):
+        assert layer in nav_body, f"syncNavUI does not toggle layer {layer}"
+    assert '"visibility"' in nav_body and '"none"' in nav_body
+
+
 def test_pwa_wiring():
     html = _text("index.html")
     assert 'rel="manifest"' in html, "index.html never links the web app manifest"
