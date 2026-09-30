@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>PEV Buddy — turn-by-turn e-bike &amp; e-scooter navigation in SF</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#0f1720" />
@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <!-- style.css comes after maplibre-gl.css so our popup overrides win at equal specificity -->
-  <link rel="stylesheet" href="style.css?v=18" />
+  <link rel="stylesheet" href="style.css?v=19" />
 </head>
 <body>
   <aside id="sidebar">
@@ -66,6 +66,7 @@
   </aside>
   <main id="map"></main>
   <div id="map-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading the rideable network…</div>
+  <button id="cancel-route" class="hidden">✕ Cancel navigation</button>
   <button id="show-steps" class="hidden" aria-expanded="false" aria-controls="steps-drawer">Show steps</button>
   <div id="steps-drawer" class="hidden" role="region" aria-labelledby="steps-title">
     <div class="steps-head">
@@ -77,6 +78,6 @@
     </div>
     <ol id="steps"></ol>
   </div>
-  <script src="app.js?v=18"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>

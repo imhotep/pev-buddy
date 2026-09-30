@@ -17,6 +17,8 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--text);
   background: var(--bg);
+  /* Pinch-zoom belongs to the map, not the page. */
+  touch-action: manipulation;
 }
 
 #map {
@@ -191,6 +193,25 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 
 .hidden { display: none !important; }
 
+/* While navigating on mobile, the panel tucks away and this is the way out. */
+#cancel-route {
+  position: fixed;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 25;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+#cancel-route:hover { border-color: var(--route); }
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -333,4 +354,10 @@ a:focus-visible,
   #sidebar { width: 100%; height: 46vh; top: auto; border-right: none; border-top: 1px solid var(--border); }
   #steps-drawer { width: calc(100% - 32px); }
   #show-steps { top: calc(46vh + 52px); }
+
+  /* Navigation mode: full-screen map, steps toggle up top, drawer lifted
+     clear of the cancel button. */
+  body.navigating #sidebar { display: none; }
+  body.navigating #show-steps { top: 12px; right: 12px; }
+  body.navigating #steps-drawer { bottom: 84px; }
 }

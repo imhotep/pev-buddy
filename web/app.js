@@ -471,6 +471,7 @@ function resetTrip() {
   document.getElementById("route-summary").classList.add("hidden");
   document.getElementById("steps-drawer").classList.add("hidden");
   syncStepsToggle();
+  syncNavUI();
   // Leaving navigation mode: face north again and let the screen sleep.
   map.easeTo({ bearing: 0, ...FLY });
   releaseWakeLock();
@@ -689,6 +690,29 @@ function promptStartIfMissing() {
 
 // ------------------------------------------------------- mobile navigation
 
+// Page pinch-zoom guard: two-finger gestures belong to the map only. iOS
+// Safari fires gesture* events for page zoom; other browsers pinch via
+// touchmove. The map canvas handles its own touches, so don't block those.
+document.addEventListener("gesturestart", (e) => {
+  if (!e.target.closest("#map")) e.preventDefault();
+});
+document.addEventListener(
+  "touchmove",
+  (e) => {
+    if (e.touches.length > 1 && !e.target.closest("#map")) e.preventDefault();
+  },
+  { passive: false }
+);
+
+// While a route is up on a phone, the panel tucks away and a cancel button
+// is the way back to it.
+function syncNavUI() {
+  const nav = IS_MOBILE && state.routeShown;
+  document.body.classList.toggle("navigating", nav);
+  document.getElementById("cancel-route").classList.toggle("hidden", !nav);
+}
+document.getElementById("cancel-route").addEventListener("click", resetTrip);
+
 // iOS 13+ requires a user gesture for compass access — ask on the first tap.
 function ensureOrientation() {
   if (!IS_MOBILE || orientBound) return;
@@ -770,6 +794,7 @@ async function computeRoute() {
     renderRoute(data);
   } catch (err) {
     state.routeShown = false;
+    syncNavUI();
     summary.innerHTML = `<span class="warn">⚠ ${escapeHtml(err.message)}</span>`;
     closeStepsDrawer(false);
   } finally {
@@ -790,6 +815,7 @@ function refToApi(ref) {
 
 function renderRoute(data) {
   state.routeShown = true;
+  syncNavUI();
   if (IS_MOBILE) {
     // Start tracking the rider and keep the screen on for the ride.
     if (geolocateControl) geolocateControl.trigger();
