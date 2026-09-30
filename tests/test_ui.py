@@ -106,6 +106,20 @@ def test_poi_layers_hide_while_navigating():
     assert '"visibility"' in nav_body and '"none"' in nav_body
 
 
+def test_welcome_modal_with_persistent_opt_out():
+    html = _text("index.html")
+    for i in ("welcome-modal", "welcome-never", "welcome-close"):
+        assert f'id="{i}"' in html, f"missing #{i} in index.html"
+    assert 'role="dialog"' in html and "aria-modal" in html
+    js = _text("app.js")
+    # Shown on first visit, skipped once the user opts out.
+    assert "pev-welcome-dismissed" in js
+    assert "localStorage.getItem" in js and "localStorage.setItem" in js
+    # The persisted choice is gated on the checkbox, not the dismiss itself.
+    close_body = js.split("function closeWelcome()", 1)[1].split("}", 1)[0]
+    assert "welcomeNever.checked" in close_body
+
+
 def test_pwa_wiring():
     html = _text("index.html")
     assert 'rel="manifest"' in html, "index.html never links the web app manifest"

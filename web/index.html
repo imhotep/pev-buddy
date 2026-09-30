@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <!-- style.css comes after maplibre-gl.css so our popup overrides win at equal specificity -->
-  <link rel="stylesheet" href="style.css?v=20" />
+  <link rel="stylesheet" href="style.css?v=21" />
 </head>
 <body>
   <aside id="sidebar">
@@ -66,6 +66,19 @@
   </aside>
   <main id="map"></main>
   <div id="map-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading the rideable network…</div>
+  <div id="welcome-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+    <div class="welcome-card">
+      <h2 id="welcome-title">Welcome to PEV Buddy</h2>
+      <p>Turn-by-turn navigation for e-bikes, e-scooters &amp; mopeds in San Francisco — from anywhere to anywhere.</p>
+      <ul>
+        <li>Set a <b>start</b> and a <b>destination</b>: search, click the map, or use your current location.</li>
+        <li>Pick your vehicle type — routes and speed rules follow California law for that vehicle.</li>
+        <li>Map pins: <span class="legend-dot amber" aria-hidden="true"></span>chargers · <span class="legend-dot blue" aria-hidden="true"></span>BikeLink lockers · <span class="legend-dot violet" aria-hidden="true"></span>bike racks. Tap one to navigate there.</li>
+      </ul>
+      <label class="welcome-again"><input type="checkbox" id="welcome-never" /> Don't show this again</label>
+      <button id="welcome-close">Got it</button>
+    </div>
+  </div>
   <button id="cancel-route" class="hidden">✕ Cancel navigation</button>
   <button id="show-steps" class="hidden" aria-expanded="false" aria-controls="steps-drawer">Show steps</button>
   <div id="steps-drawer" class="hidden" role="region" aria-labelledby="steps-title">
@@ -78,6 +91,6 @@
     </div>
     <ol id="steps"></ol>
   </div>
-  <script src="app.js?v=20"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>

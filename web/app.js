@@ -941,5 +941,31 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+// ------------------------------------------------------- welcome modal
+
+// First-visit intro. The "Don't show this again" choice persists in
+// localStorage; dismissing without it only closes the modal for this visit.
+const WELCOME_KEY = "pev-welcome-dismissed";
+const welcomeModal = document.getElementById("welcome-modal");
+const welcomeNever = document.getElementById("welcome-never");
+
+function closeWelcome() {
+  if (welcomeNever.checked) localStorage.setItem(WELCOME_KEY, "1");
+  welcomeModal.classList.add("hidden");
+}
+
+if (!localStorage.getItem(WELCOME_KEY)) {
+  welcomeModal.classList.remove("hidden");
+  document.getElementById("welcome-close").focus();
+}
+document.getElementById("welcome-close").addEventListener("click", closeWelcome);
+welcomeModal.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeWelcome();
+});
+// Clicking the dimmed backdrop dismisses too.
+welcomeModal.addEventListener("click", (e) => {
+  if (e.target === welcomeModal) closeWelcome();
+});
+
 // PWA: cache the app shell for offline loads and make the app installable.
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");

@@ -212,6 +212,63 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 }
 #cancel-route:hover { border-color: var(--route); }
 
+/* First-visit intro modal */
+#welcome-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(6, 10, 15, 0.72);
+}
+.welcome-card {
+  max-width: 420px;
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 22px 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+}
+.welcome-card h2 { margin: 0 0 8px; font-size: 18px; }
+.welcome-card p { margin: 0 0 12px; font-size: 13.5px; color: var(--text); line-height: 1.5; }
+.welcome-card ul { margin: 0 0 14px; padding-left: 18px; font-size: 13px; color: var(--muted); line-height: 1.55; }
+.welcome-card li { margin-bottom: 6px; }
+.legend-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin: 0 4px 0 2px;
+  vertical-align: -1px;
+}
+.legend-dot.amber { background: var(--route); }
+.legend-dot.blue { background: #4da3ff; }
+.legend-dot.violet { background: #b48cff; }
+.welcome-again {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+.welcome-again input { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+#welcome-close {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #0c2318;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+#welcome-close:hover { filter: brightness(1.1); }
+
 .visually-hidden {
   position: absolute;
   width: 1px;

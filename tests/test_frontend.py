@@ -63,6 +63,8 @@ def browser():
 @pytest.fixture()
 def page(browser, live_server):
     pg = browser.new_page(viewport={"width": 1280, "height": 800})
+    # Tests exercise the app, not the first-visit intro — pre-dismiss it.
+    pg.add_init_script("localStorage.setItem('pev-welcome-dismissed', '1')")
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{live_server}/", wait_until="networkidle")
@@ -179,3 +181,28 @@ def test_steps_keyboard_and_drawer_focus(page):
     page.click("#show-steps")
     assert page.evaluate("() => document.activeElement.id") == "steps-close"
     assert page.get_attribute("#show-steps", "aria-expanded") == "true"
+
+
+def test_welcome_modal_first_visit_and_opt_out(browser, live_server):
+    # A fresh profile (no pre-dismissed flag) gets the intro on first load.
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    pg = ctx.new_page()
+    pg.goto(f"{live_server}/", wait_until="networkidle")
+    assert pg.is_visible("#welcome-modal")
+    assert "PEV Buddy" in pg.text_content("#welcome-title")
+    # Focus starts on the dismiss button.
+    assert pg.evaluate("() => document.activeElement.id") == "welcome-close"
+    # Dismiss without the checkbox: modal closes, nothing persisted, so a
+    # reload shows it again.
+    pg.click("#welcome-close")
+    assert not pg.is_visible("#welcome-modal")
+    assert pg.evaluate("() => localStorage.getItem('pev-welcome-dismissed')") is None
+    pg.reload(wait_until="networkidle")
+    assert pg.is_visible("#welcome-modal")
+    # With the checkbox: the choice persists across reloads.
+    pg.check("#welcome-never")
+    pg.click("#welcome-close")
+    pg.reload(wait_until="networkidle")
+    assert not pg.is_visible("#welcome-modal")
+    pg.close()
+    ctx.close()
