@@ -690,19 +690,14 @@ function promptStartIfMissing() {
 
 // ------------------------------------------------------- mobile navigation
 
-// Page pinch-zoom guard: two-finger gestures belong to the map only. iOS
-// Safari fires gesture* events for page zoom; other browsers pinch via
-// touchmove. The map canvas handles its own touches, so don't block those.
+// Page pinch-zoom guard: two-finger zoom belongs to the map only. The
+// viewport meta + touch-action: manipulation cover Android; iOS Safari
+// ignores those, so we cancel its gesturestart event. Touches that begin on
+// the map canvas are always exempt — MapLibre handles the pinch itself.
+// (A document-level touchmove guard was tried and broke map pinch on iOS.)
 document.addEventListener("gesturestart", (e) => {
-  if (!e.target.closest("#map")) e.preventDefault();
+  if (!(e.target instanceof Element) || !e.target.closest("#map")) e.preventDefault();
 });
-document.addEventListener(
-  "touchmove",
-  (e) => {
-    if (e.touches.length > 1 && !e.target.closest("#map")) e.preventDefault();
-  },
-  { passive: false }
-);
 
 // While a route is up on a phone, the panel tucks away and a cancel button
 // is the way back to it.

@@ -80,6 +80,8 @@ def test_page_pinch_zoom_is_disabled_but_map_is_exempt():
     js = _text("app.js")
     assert '"gesturestart"' in js, "iOS Safari page-pinch guard missing"
     assert 'closest("#map")' in js, "map canvas must stay exempt from the pinch guard"
+    # A document-level touchmove guard broke map pinch on iOS — don't re-add it.
+    assert '"touchmove"' not in js, "document touchmove guards interfere with map pinch"
     assert "touch-action: manipulation" in _text("style.css")
 
 
