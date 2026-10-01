@@ -1,13 +1,13 @@
 // PEV Buddy service worker: makes the app installable (PWA) and keeps the app
 // shell + map library/tiles available on flaky connections. API calls and
 // /data GeoJSON are always fetched live — routes and POIs must never be stale.
-const CACHE = "pev-buddy-v22";
+const CACHE = "pev-buddy-v23";
 
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=22",
-  "/app.js?v=22",
+  "/style.css?v=23",
+  "/app.js?v=23",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -32,8 +32,23 @@ self.addEventListener("fetch", (e) => {
   if (url.origin === location.origin && (url.pathname.startsWith("/api/") || url.pathname.startsWith("/data/"))) {
     return;
   }
+  // Navigations (index.html): network-first. The HTML pins every asset to a
+  // cache-busted ?v=N, so a stale HTML would pin the whole app to an old
+  // version — exactly the failure mode this avoids.
+  if (e.request.mode === "navigate") {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => {
+          const clone = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, clone));
+          return res;
+        })
+        .catch(() => caches.match(e.request).then((hit) => hit || caches.match("/")))
+    );
+    return;
+  }
   // App shell and CDN assets (MapLibre, basemap tiles/fonts): cache-first,
-  // filling the cache as we go.
+  // filling the cache as we go. ?v=N assets are immutable per version.
   if (url.origin === location.origin || /jsdelivr\.net|basemaps\.cartocdn\.com/.test(url.host)) {
     e.respondWith(
       caches.match(e.request).then(

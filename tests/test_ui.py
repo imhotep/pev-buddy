@@ -134,6 +134,12 @@ def test_pwa_wiring():
     assert "serviceWorker" in js, "app.js never registers the service worker"
     assert "GeolocateControl" in js, "mobile location pin missing"
     assert "wakeLock" in js, "screen wake lock missing"
+    # Navigations must be network-first: index.html pins every asset to a
+    # ?v=N, so stale HTML would strand the app on an old version forever.
+    sw = _text("sw.js")
+    assert '"navigate"' in sw, "service worker must special-case navigations"
+    nav = sw.split('"navigate"', 1)[1][:400]
+    assert "fetch(" in nav.split("caches.match", 1)[0], "navigations must hit the network before the cache"
 
 
 def test_poi_layers_clustered_with_distinct_kind_colors():
