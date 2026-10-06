@@ -153,3 +153,22 @@ def test_poi_layers_clustered_with_distinct_kind_colors():
     assert len(set(colors.values())) == 3, "each POI kind needs its own pin color"
     # Clicking a locker must be able to open its bubble.
     assert "showBikeLinkPopup" in js
+
+
+def test_search_result_subtitle_wiring():
+    """Issue #2: overlay shows category · address under each search hit."""
+    js = _text("search-subtitle.js")
+    assert "function resultSubtitle" in js
+    assert "r.address" in js
+    assert " · " in js
+    # Redefines runSearch so the subtitle path is what keyup invokes.
+    assert "async function runSearch" in js
+    assert "resultSubtitle(r)" in js
+    html = _text("index.html")
+    assert "search-subtitle.js?v=" in html
+    sw = _text("sw.js")
+    assert "search-subtitle.js?v=" in sw
+    html_vs = set(re.findall(r"\?v=(\d+)", html))
+    sw_vs = set(re.findall(r"\?v=(\d+)", sw))
+    assert html_vs, "index.html missing ?v=N"
+    assert html_vs == sw_vs or html_vs.issubset(sw_vs) or sw_vs.issubset(html_vs)
