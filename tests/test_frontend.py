@@ -130,6 +130,23 @@ def test_search_results_and_escape(page):
     assert page.evaluate("() => document.activeElement.id") == "search"
 
 
+def test_search_clears_query_after_picking_destination(page):
+    """Issue #6: picking Destination clears the search box and closes results."""
+    page.fill("#search", "bakery")
+    page.wait_for_selector("#search-results:not(.hidden)")
+    # Prefer role/text over brittle CSS for the Destination mini-button.
+    page.locator("#search-results .result").filter(has_text="Test Bakery").get_by_role(
+        "button", name="Destination"
+    ).click()
+    page.wait_for_function(
+        "() => document.getElementById('search').value === ''"
+        " && document.getElementById('search-results').classList.contains('hidden')"
+    )
+    assert page.input_value("#search") == ""
+    assert page.eval_on_selector("#search-results", "el => el.classList.contains('hidden')")
+    assert page.text_content("#end-label") == "Test Bakery"
+
+
 def test_station_popup_and_navigate(page):
     page.evaluate(
         """() => showStationPopup({
