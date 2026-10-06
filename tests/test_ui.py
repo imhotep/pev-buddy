@@ -153,3 +153,17 @@ def test_poi_layers_clustered_with_distinct_kind_colors():
     assert len(set(colors.values())) == 3, "each POI kind needs its own pin color"
     # Clicking a locker must be able to open its bubble.
     assert "showBikeLinkPopup" in js
+
+
+def test_search_clears_after_endpoint_pick():
+    """Issue #6: Start/Destination pick clears the query and closes results."""
+    js = _text("search-clear.js")
+    assert 'searchInput.value = ""' in js
+    # Clear happens in the Start/Destination button path, not only on Escape.
+    pick = js.split('[["Start", "start"]', 1)[1].split("div.addEventListener", 1)[0]
+    assert 'searchInput.value = ""' in pick
+    assert "hideSearchResults()" in pick
+    html = _text("index.html")
+    assert "search-clear.js?v=" in html
+    sw = _text("sw.js")
+    assert "search-clear.js?v=" in sw
