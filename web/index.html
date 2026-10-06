@@ -3,110 +3,88 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#0c141d" />
-  <meta name="description" content="PEV Buddy — electric scooter and e-bike routing for San Francisco with EV chargers and BikeLink lockers." />
-  <title>PEV Buddy — SF electric ride routing</title>
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/icons/icon-192.png" />
-  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-  <link
-    href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
-    rel="stylesheet"
-  />
+  <title>PEV Buddy — turn-by-turn e-bike &amp; e-scooter navigation in SF</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f1720" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="PEV Buddy" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23ffb02e'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <!-- style.css comes after maplibre-gl.css so our popup overrides win at equal specificity -->
   <link rel="stylesheet" href="style.css?v=25" />
 </head>
 <body>
-  <div id="app">
-    <aside id="panel">
-      <header>
-        <div class="brand">
-          <span class="logo" aria-hidden="true">⚡</span>
-          <div>
-            <h1>PEV Buddy</h1>
-            <p class="tag">San Francisco · scooter &amp; e-bike routes</p>
-          </div>
+  <aside id="sidebar">
+    <header>
+      <h1>PEV Buddy</h1>
+      <p class="tagline">Turn-by-turn navigation for e-bikes, e-scooters &amp; mopeds in San Francisco — with chargers, lockers &amp; racks on the map.</p>
+    </header>
+
+    <div class="search">
+      <input id="search" type="text" placeholder="Search SF — address, business, or place…" autocomplete="off" aria-label="Search San Francisco addresses, businesses, or places" aria-expanded="false" aria-controls="search-results" />
+      <div id="search-results" class="hidden"></div>
+      <div id="search-status" class="visually-hidden" aria-live="polite"></div>
+    </div>
+
+    <section id="trip">
+      <div class="trip-caption">Vehicle type</div>
+      <select id="vehicle" class="vehicle-select" aria-label="Vehicle type"></select>
+      <div id="vehicle-desc" class="vehicle-desc" aria-live="polite"></div>
+      <div class="trip-row">
+        <span class="dot start"></span>
+        <div class="trip-labels">
+          <div class="trip-caption">Start</div>
+          <div id="start-label" class="trip-value" aria-live="polite">Not set — search or click the map</div>
+          <button id="use-location" class="mini">Use my location</button>
         </div>
-      </header>
-
-      <section class="block">
-        <label class="lbl" for="vehicle">Vehicle</label>
-        <select id="vehicle"></select>
-        <p id="vehicle-desc" class="hint"></p>
-      </section>
-
-      <section class="block search">
-        <label class="lbl" for="search">Search</label>
-        <input id="search" type="search" placeholder="Place, charger, locker…" autocomplete="off"
-               role="combobox" aria-autocomplete="list" aria-controls="search-results" aria-expanded="false" />
-        <div id="search-results" class="results hidden" role="listbox"></div>
-        <div id="search-status" class="sr-only" role="status" aria-live="polite"></div>
-      </section>
-
-      <section class="block trip">
-        <div class="endpoint">
-          <div class="ep-head">
-            <span class="dot start" aria-hidden="true"></span>
-            <span class="ep-label">Start</span>
-            <button type="button" class="linkish" id="use-location">Use my location</button>
-          </div>
-          <div id="start-label" class="ep-value">Not set — search or click the map</div>
-        </div>
-        <div class="endpoint">
-          <div class="ep-head">
-            <span class="dot end" aria-hidden="true"></span>
-            <span class="ep-label">Destination</span>
-            <button type="button" class="linkish" id="use-location-end">Use my location</button>
-          </div>
-          <div id="end-label" class="ep-value">Not set — search, click the map, or a pin</div>
-        </div>
-        <div id="route-summary" class="summary hidden" role="status" aria-live="polite"></div>
-        <div class="row">
-          <button type="button" id="show-steps" class="ghost hidden" aria-controls="steps-drawer" aria-expanded="false">Show steps</button>
-          <button type="button" id="reset-route" class="ghost">Reset</button>
-        </div>
-      </section>
-
-      <footer class="fine">
-        Data: OpenStreetMap · AFDC · BikeLink · SFMTA
-      </footer>
-    </aside>
-
-    <main id="map-wrap">
-      <div id="map" role="region" aria-label="Map"></div>
-      <div id="map-loading" class="map-loading">Loading map data…</div>
-      <button type="button" id="cancel-route" class="cancel-route hidden">Cancel route</button>
-    </main>
-
-    <aside id="steps-drawer" class="drawer hidden" role="dialog" aria-labelledby="steps-title">
-      <div class="drawer-head">
-        <h2 id="steps-title">Turn-by-turn</h2>
-        <button type="button" id="steps-close" class="icon-btn" aria-label="Close steps">×</button>
       </div>
-      <ol id="steps"></ol>
-    </aside>
-  </div>
+      <div class="trip-row">
+        <span class="dot end"></span>
+        <div class="trip-labels">
+          <div class="trip-caption">Destination</div>
+          <div id="end-label" class="trip-value" aria-live="polite">Not set — search, click the map, or a pin</div>
+          <button id="use-location-end" class="mini">Use my location</button>
+        </div>
+      </div>
+      <div id="route-summary" class="hidden" aria-live="polite"></div>
+      <button id="reset-route" class="ghost">Reset</button>
+    </section>
 
-  <div id="welcome-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
-    <div class="modal-card">
+    <footer>
+      <small>OpenStreetMap · <a href="https://afdc.energy.gov/" target="_blank" rel="noopener">AFDC</a> · BikeLink · SFMTA</small>
+    </footer>
+  </aside>
+  <div id="map"></div>
+  <div id="map-loading">Loading map data…</div>
+  <div id="welcome-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+    <div class="welcome-card">
       <h2 id="welcome-title">Welcome to PEV Buddy</h2>
-      <p>Plan scooter and e-bike routes across San Francisco. Search for a place, tap the map, or use your location — then navigate with turn-by-turn steps.</p>
+      <p>Plan e-bike and e-scooter trips across San Francisco with chargers, BikeLink lockers, and bike racks on the map.</p>
       <ul>
-        <li>Orange pins are EV chargers</li>
-        <li>Blue pins are BikeLink lockers</li>
-        <li>Violet pins are SFMTA bike racks</li>
+        <li>Search or tap the map to set start and destination</li>
+        <li>Pick your vehicle type for legal speed limits</li>
+        <li>Follow turn-by-turn steps on the map</li>
       </ul>
-      <label class="check">
-        <input type="checkbox" id="welcome-never" />
-        Don’t show this again
-      </label>
-      <button type="button" id="welcome-close" class="primary">Got it</button>
+      <label class="welcome-again"><input type="checkbox" id="welcome-never" /> Don't show this again</label>
+      <button id="welcome-close">Got it</button>
     </div>
   </div>
-
+  <button id="cancel-route" class="hidden">✕ Cancel navigation</button>
+  <button id="show-steps" class="hidden" aria-expanded="false" aria-controls="steps-drawer">Show steps</button>
+  <div id="steps-drawer" class="hidden" role="region" aria-labelledby="steps-title">
+    <div class="steps-head">
+      <button id="steps-close">Hide steps</button>
+      <div class="steps-heading">
+        <span id="steps-title"></span>
+        <small>Click a step to highlight it on the map</small>
+      </div>
+    </div>
+    <ol id="steps"></ol>
+  </div>
   <script src="app.js?v=25"></script>
   <script src="reset-markers.js?v=25"></script>
 </body>
