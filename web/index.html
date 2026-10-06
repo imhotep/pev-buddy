@@ -50,24 +50,30 @@
           <button id="use-location-end" class="mini">Use my location</button>
         </div>
       </div>
+      <button id="reset-route" class="mini">Reset</button>
       <div id="route-summary" class="hidden" aria-live="polite"></div>
-      <button id="reset-route" class="ghost">Reset</button>
     </section>
 
     <footer>
-      <small>OpenStreetMap · <a href="https://afdc.energy.gov/" target="_blank" rel="noopener">AFDC</a> · BikeLink · SFMTA</small>
+      Map data ©
+      <a href="https://overturemaps.org" target="_blank" rel="noopener">Overture Maps</a>
+      (CDLA-Permissive-2.0) &amp; OSM contributors ·
+      <a href="https://bikelink.org" target="_blank" rel="noopener">BikeLink</a> locker locations © eLOCK Technologies LLC ·
+      Bike racks ©
+      <a href="https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5" target="_blank" rel="noopener">SFMTA / DataSF</a> ·
+      Routes are e-bike guidance, not a legal navigation device.
     </footer>
   </aside>
-  <div id="map"></div>
-  <div id="map-loading">Loading map data…</div>
+  <main id="map"></main>
+  <div id="map-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading the rideable network…</div>
   <div id="welcome-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
     <div class="welcome-card">
       <h2 id="welcome-title">Welcome to PEV Buddy</h2>
-      <p>Plan e-bike and e-scooter trips across San Francisco with chargers, BikeLink lockers, and bike racks on the map.</p>
+      <p>Turn-by-turn navigation for e-bikes, e-scooters &amp; mopeds in San Francisco — from anywhere to anywhere.</p>
       <ul>
-        <li>Search or tap the map to set start and destination</li>
-        <li>Pick your vehicle type for legal speed limits</li>
-        <li>Follow turn-by-turn steps on the map</li>
+        <li>Set a <b>start</b> and a <b>destination</b>: search, click the map, or use your current location.</li>
+        <li>Pick your vehicle type — routes and speed rules follow California law for that vehicle.</li>
+        <li>Map pins: <span class="legend-dot amber" aria-hidden="true"></span>chargers · <span class="legend-dot blue" aria-hidden="true"></span>BikeLink lockers · <span class="legend-dot violet" aria-hidden="true"></span>bike racks. Tap one to navigate there.</li>
       </ul>
       <label class="welcome-again"><input type="checkbox" id="welcome-never" /> Don't show this again</label>
       <button id="welcome-close">Got it</button>
