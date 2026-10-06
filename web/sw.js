@@ -8,6 +8,7 @@ const SHELL = [
   "/index.html",
   "/style.css?v=24",
   "/app.js?v=24",
+  "/geolocation.js?v=24",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
