@@ -8,12 +8,17 @@ import numpy as np
 import orjson
 
 from . import config
+from .geo import haversine
 
 
 def format_category(cat: str | None) -> str:
     if not cat:
         return "Place"
     return cat.replace("_", " ").title()
+
+
+# Same-name POIs within this radius collapse to one hit (issue #2).
+DEDUPE_M = 75.0
 
 
 class POIIndex:
@@ -72,17 +77,38 @@ class POIIndex:
                 elif q in name:
                     for i in idxs:
                         scored.append((60, i))
-        scored.sort(key=lambda t: (-t[0], len(self.names[t[1]]), self.names[t[1]].casefold()))
+        # Prefer higher score, then entries with an address (issue #2 subtitles),
+        # then shorter / A-Z names. Near-duplicate same-name pins are collapsed below.
+        scored.sort(
+            key=lambda t: (
+                -t[0],
+                0 if self.addresses[t[1]] else 1,
+                len(self.names[t[1]]),
+                self.names[t[1]].casefold(),
+            )
+        )
         out: list[dict] = []
-        for score, i in scored[:limit]:
+        kept: list[tuple[str, float, float]] = []  # name_key, lon, lat
+        for score, i in scored:
+            name = self.names[i]
+            name_key = name.casefold()
+            lon, lat = float(self.lon[i]), float(self.lat[i])
+            if any(
+                name_key == kn and haversine(lon, lat, klon, klat) < DEDUPE_M
+                for kn, klon, klat in kept
+            ):
+                continue
+            kept.append((name_key, lon, lat))
             out.append(
                 {
-                    "name": self.names[i],
+                    "name": name,
                     "category": format_category(self.cat_vocab[int(self.cat_code[i])]),
                     "address": self.addresses[i],
-                    "lon": float(self.lon[i]),
-                    "lat": float(self.lat[i]),
+                    "lon": lon,
+                    "lat": lat,
                     "score": score,
                 }
             )
+            if len(out) >= limit:
+                break
         return out
