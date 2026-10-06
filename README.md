@@ -149,7 +149,8 @@ Production runs on a small VPS: a systemd unit serves uvicorn on
 `127.0.0.1:8765`, and [Caddy](https://caddyserver.com) fronts it with
 automatic Let's Encrypt HTTPS (`deploy/Caddyfile` — one `reverse_proxy` block
 per subdomain, so other apps can share the box). Ingress (Caddy or Tailscale
-Funnel) is unchanged by routine deploys — set it up once and leave it.
+Funnel) is for **public HTTPS of the app**, not for deploy access. Routine
+deploys reach the box privately over the tailnet (see below).
 
 ### First-time VPS setup
 
@@ -167,19 +168,46 @@ locally and push instead: `rsync -az data/ <host>:~/pev-buddy/data/`.
 ### Automated deploys from the `release` branch
 
 Pushing (or merging) to the **`release`** branch triggers
-`.github/workflows/deploy.yml`: GitHub Actions SSHs into the VPS and runs
-`deploy/remote-update.sh` (git pull `--ff-only` on `release`, pip install,
-`systemctl restart pev-buddy`). **Code-only by default** — it does *not* run
-`pev_buddy.sync` on every deploy (data is large and RAM-heavy).
+`.github/workflows/deploy.yml`. The GitHub Actions runner has no public path
+to the VPS, so the workflow:
+
+1. Joins your tailnet with [`tailscale/github-action@v4`](https://github.com/tailscale/github-action)
+   (OAuth client, tagged `tag:ci`) and pings `DEPLOY_HOST` to verify
+   connectivity.
+2. SSHes privately to that host (classic SSH with `DEPLOY_SSH_KEY` to the
+   MagicDNS name or `100.x` address) and runs `deploy/remote-update.sh`
+   (git pull `--ff-only` on `release`, pip install, `systemctl restart
+   pev-buddy`).
+
+**Code-only by default** — it does *not* run `pev_buddy.sync` on every deploy
+(data is large and RAM-heavy).
 
 **Repo secrets** (Settings → Secrets and variables → Actions):
 
 | Secret | Required | Purpose |
 |---|---|---|
-| `DEPLOY_HOST` | yes | VPS hostname or IP |
-| `DEPLOY_USER` | yes | SSH user |
-| `DEPLOY_SSH_KEY` | yes | Private key for that user |
+| `TS_OAUTH_CLIENT_ID` | yes | Tailscale OAuth client ID (writable `auth_keys` scope) |
+| `TS_OAUTH_SECRET` | yes | Tailscale OAuth client secret |
+| `DEPLOY_HOST` | yes | VPS MagicDNS name preferred (e.g. `my-vps.tailnet.ts.net`) or Tailscale `100.x` IP |
+| `DEPLOY_USER` | yes | SSH user on the VPS |
+| `DEPLOY_SSH_KEY` | yes | Private key for classic SSH over the tailnet |
 | `DEPLOY_APP_DIR` | no | App path on the VPS (default `~/pev-buddy`) |
+
+**Tailscale ACL / tag setup (high level):**
+
+1. Define tag `tag:ci` in the tailnet policy (and tag the VPS, e.g.
+   `tag:server`, if you use tags for hosts).
+2. Create an [OAuth client](https://tailscale.com/kb/1215/oauth-clients) with
+   writable **`auth_keys`** scope, restricted to `tag:ci` (the CI node must be
+   tagged; OAuth clients cannot mint untagged nodes).
+3. Allow `tag:ci` to reach the VPS on SSH (port 22), e.g. something like:
+   `"src": ["tag:ci"], "dst": ["tag:server"], "proto": "tcp", "dstPorts": ["22"]`
+   (adjust tags/hosts to match your ACL). Also ensure the OAuth client's tags
+   match what the workflow requests (`tags: tag:ci`).
+4. Put the VPS user's deploy public key in `~/.ssh/authorized_keys` (classic
+   SSH remains the reliable default after the runner joins the tailnet).
+
+Funnel (or Caddy) stays for app HTTPS only — it is not used for deploy SSH.
 
 **Cut a release:** merge or promote `main` → `release` (create `release` from
 `main` the first time), then push. That push deploys. Do not push to `main`

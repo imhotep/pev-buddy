@@ -20,24 +20,41 @@ jobs:
     steps:
       - name: Check required secrets
         env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           missing=0
-          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY; do
+          for name in TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY; do
             if [ -z "${!name}" ]; then
               echo "::error::$name secret is not set"
               missing=1
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "Set DEPLOY_HOST, DEPLOY_USER, and DEPLOY_SSH_KEY in"
-            echo "Settings → Secrets and variables → Actions."
+            echo "Required secrets (Settings → Secrets and variables → Actions):"
+            echo "  Tailscale: TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET"
+            echo "  Host/SSH:  DEPLOY_HOST (MagicDNS preferred), DEPLOY_USER, DEPLOY_SSH_KEY"
             echo "Optional: DEPLOY_APP_DIR (defaults to ~/pev-buddy on the VPS)."
+            echo "ACL: allow tag:ci to SSH to the VPS (see README Deploy)."
             exit 1
           fi
 
+      # Ephemeral CI node joins the tailnet so SSH can reach a private VPS.
+      # OAuth client needs writable auth_keys scoped to tag:ci; ACL must allow
+      # tag:ci → VPS (and the tag must exist / be owned by the OAuth client).
+      - name: Connect Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          ping: ${{ secrets.DEPLOY_HOST }}
+
+      # Classic SSH over the tailnet (MagicDNS / 100.x). Reliable default after
+      # joining; Tailscale SSH is an alternative if you prefer ACL-only auth.
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.2
         env:
