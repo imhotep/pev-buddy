@@ -80,3 +80,21 @@ def point_on_linestring(coords: list[tuple[float, float]], t: float) -> tuple[fl
 def linestring_length_m(coords: list[tuple[float, float]]) -> float:
     """Total length in meters of a coordinate list."""
     return sum(haversine(*coords[i], *coords[i + 1]) for i in range(len(coords) - 1))
+
+
+M_PER_MI = 1609.34
+M_PER_FT = 0.3048
+
+
+def format_distance_imperial(meters: float) -> str:
+    """Format a meter length for the SF UI (imperial-only).
+
+    Under 0.1 mi use whole feet (snaps and short stubs); otherwise one-decimal
+    miles so warnings match the route total.
+    """
+    if meters < 0:
+        meters = 0.0
+    miles = meters / M_PER_MI
+    if miles < 0.1:
+        return f"{meters / M_PER_FT:.0f} ft"
+    return f"{miles:.1f} mi"
