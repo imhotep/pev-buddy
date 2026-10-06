@@ -206,3 +206,49 @@ def test_welcome_modal_first_visit_and_opt_out(browser, live_server):
     assert not pg.is_visible("#welcome-modal")
     pg.close()
     ctx.close()
+
+
+def test_reset_clears_destination_marker_then_start_only(page):
+    """Issue #7: after Reset, Destination Not set must not leave an orange end pin.
+    Setting Start alone afterward must leave only the green start marker."""
+    alon, alat = m_to_lonlat(0, 0)
+    flon, flat = m_to_lonlat(200, -100)
+    page.evaluate(
+        f"""() => {{
+          setStart({{ kind: 'coords', lat: {alat}, lon: {alon}, label: 'Test start' }});
+          setEnd({{ kind: 'coords', lat: {flat}, lon: {flon}, label: 'Test end' }});
+        }}"""
+    )
+    page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=15000)
+    assert page.evaluate("() => !!startMarker._map && !!endMarker._map")
+
+    page.click("#reset-route")
+    page.wait_for_function(
+        """() => !startMarker._map && !endMarker._map
+          && state.startRef === null && state.endRef === null
+          && document.getElementById('end-label').textContent.startsWith('Not set')"""
+    )
+    # No start/destination marker elements left in the map pane.
+    assert page.evaluate("() => document.querySelectorAll('.maplibregl-marker').length") == 0
+
+    page.evaluate(
+        f"""() => setStart({{ kind: 'coords', lat: {alat}, lon: {alon}, label: 'Start only' }})"""
+    )
+    page.wait_for_function("() => !!startMarker._map && state.startRef && !state.endRef")
+    info = page.evaluate(
+        """() => ({
+          endOnMap: !!endMarker._map,
+          endRef: state.endRef,
+          endLabel: document.getElementById('end-label').textContent,
+          markerCount: document.querySelectorAll('.maplibregl-marker').length,
+          bgs: [...document.querySelectorAll('.maplibregl-marker')].map(
+            (el) => getComputedStyle(el).backgroundColor
+          ),
+        })"""
+    )
+    assert info["endOnMap"] is False
+    assert info["endRef"] is None
+    assert info["endLabel"].startswith("Not set")
+    assert info["markerCount"] == 1
+    # Start marker is green (#35d07f); the orange end pin must be gone.
+    assert info["bgs"] == ["rgb(53, 208, 127)"]
