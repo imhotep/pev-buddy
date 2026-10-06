@@ -1,0 +1,68 @@
+name: Deploy
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+    inputs:
+      sync_data:
+        description: "Also refresh the data bundle (pev_buddy.sync; RAM-heavy)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name secret is not set"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Set DEPLOY_HOST, DEPLOY_USER, and DEPLOY_SSH_KEY in"
+            echo "Settings → Secrets and variables → Actions."
+            echo "Optional: DEPLOY_APP_DIR (defaults to ~/pev-buddy on the VPS)."
+            exit 1
+          fi
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
+          SYNC_DATA: ${{ github.event.inputs.sync_data || 'false' }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: DEPLOY_APP_DIR,SYNC_DATA
+          script: |
+            set -euo pipefail
+            export APP_DIR="${DEPLOY_APP_DIR:-$HOME/pev-buddy}"
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "APP_DIR=$APP_DIR is not a git checkout."
+              echo "Run deploy/setup.sh on the VPS once first."
+              exit 1
+            fi
+            cd "$APP_DIR"
+            # Pull release so deploy/remote-update.sh exists before we run it.
+            git fetch origin
+            git checkout release
+            git pull --ff-only origin release
+            if [ "${SYNC_DATA:-false}" = "true" ]; then
+              bash deploy/remote-update.sh --sync
+            else
+              bash deploy/remote-update.sh
+            fi

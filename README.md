@@ -148,8 +148,13 @@ push (`.github/workflows/test.yml`).
 Production runs on a small VPS: a systemd unit serves uvicorn on
 `127.0.0.1:8765`, and [Caddy](https://caddyserver.com) fronts it with
 automatic Let's Encrypt HTTPS (`deploy/Caddyfile` — one `reverse_proxy` block
-per subdomain, so other apps can share the box). `deploy/setup.sh` installs or
-updates the app on a Debian/Ubuntu VPS (deps, data bundle, systemd unit):
+per subdomain, so other apps can share the box). Ingress (Caddy or Tailscale
+Funnel) is unchanged by routine deploys — set it up once and leave it.
+
+### First-time VPS setup
+
+Run `deploy/setup.sh` once on the box (deps, data bundle, systemd unit, and
+optional Funnel):
 
 ```bash
 git clone https://github.com/imhotep/pev-buddy.git && bash pev-buddy/deploy/setup.sh
@@ -158,6 +163,35 @@ git clone https://github.com/imhotep/pev-buddy.git && bash pev-buddy/deploy/setu
 It builds the data bundle on first run (`--sync` to refresh it later).
 Building the bundle needs ~1.5 GB free RAM; on a small or busy VPS, build
 locally and push instead: `rsync -az data/ <host>:~/pev-buddy/data/`.
+
+### Automated deploys from the `release` branch
+
+Pushing (or merging) to the **`release`** branch triggers
+`.github/workflows/deploy.yml`: GitHub Actions SSHs into the VPS and runs
+`deploy/remote-update.sh` (git pull `--ff-only` on `release`, pip install,
+`systemctl restart pev-buddy`). **Code-only by default** — it does *not* run
+`pev_buddy.sync` on every deploy (data is large and RAM-heavy).
+
+**Repo secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Required | Purpose |
+|---|---|---|
+| `DEPLOY_HOST` | yes | VPS hostname or IP |
+| `DEPLOY_USER` | yes | SSH user |
+| `DEPLOY_SSH_KEY` | yes | Private key for that user |
+| `DEPLOY_APP_DIR` | no | App path on the VPS (default `~/pev-buddy`) |
+
+**Cut a release:** merge or promote `main` → `release` (create `release` from
+`main` the first time), then push. That push deploys. Do not push to `main`
+to deploy — only `release` triggers the workflow.
+
+**Refresh data** when needed (not on every code deploy):
+
+- Actions → Deploy → Run workflow → enable **sync_data**, or
+- On the VPS: `bash deploy/remote-update.sh --sync` or
+  `bash deploy/setup.sh --sync`
+
+Manual code update on the VPS without CI: `bash deploy/remote-update.sh`.
 
 ### Self-host behind Tailscale
 
