@@ -141,6 +141,13 @@ def test_route_unreachable_snaps_to_usable_junction(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert any("snapped" in w for w in body["warnings"])
+    # Issue #5: warning distances are imperial (ft / mi), never bare metres.
+    import re
+    metre = re.compile(r"(^|\s)\d+(\.\d+)?\s*m(\s|$|[.,;:])")
+    for w in body["warnings"]:
+        assert metre.search(w) is None, w
+        if "snapped" in w:
+            assert " ft" in w or " mi" in w
 
 
 def test_route_vehicle_param_and_segment_stats(client):
@@ -195,6 +202,9 @@ def test_route_sidewalk_warning(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert any("sidewalk" in w for w in body["warnings"])
+    sidewalk_ws = [w for w in body["warnings"] if "sidewalk" in w]
+    assert any(" ft" in w or " mi" in w for w in sidewalk_ws)
+    assert all(" m of sidewalk" not in w for w in sidewalk_ws)
 
 
 def test_route_arterial_warning(client):
@@ -209,6 +219,9 @@ def test_route_arterial_warning(client):
     body = r.json()
     assert any("arterial" in w for w in body["warnings"])
     assert body["segment_stats"]["arterial"]["max_speed_mph"] == 40
+    arterial_ws = [w for w in body["warnings"] if "arterial" in w]
+    assert any(" ft" in w or " mi" in w for w in arterial_ws)
+    assert all(" m of fast arterial" not in w for w in arterial_ws)
 
 
 def test_route_unknown_station_is_404(client):
@@ -281,3 +294,21 @@ def test_route_to_bikelink_by_id(client):
     )
     assert r.status_code == 200, r.text
     assert r.json()["start_label"] == "Test Locker"
+
+
+def test_route_warnings_use_imperial_distances(client):
+    """Issue #5: route warning text must not mix metres into an imperial UI."""
+    import re
+
+    y = m_to_lonlat(300, -100)
+    a = m_to_lonlat(0, 0)
+    r = client.post(
+        "/api/route",
+        json={"start": {"lon": a[0], "lat": a[1]}, "end": {"lon": y[0], "lat": y[1]}},
+    )
+    assert r.status_code == 200, r.text
+    warnings = r.json()["warnings"]
+    assert warnings, "expected at least one distance-bearing warning"
+    metre_token = re.compile(r"(^|\s)\d+(\.\d+)?\s*m(\s|$|[.,;:])")
+    for w in warnings:
+        assert not metre_token.search(w), f"warning still uses metres: {w!r}"
