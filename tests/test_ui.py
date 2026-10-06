@@ -62,9 +62,36 @@ def test_map_click_guarded_by_route_shown():
 
 def test_reset_clears_route_state():
     js = _text("app.js")
-    reset_body = js.split("function resetTrip()", 1)[1].split("}", 1)[0]
-    for cleared in ("startRef", "endRef", "routeShown", "pev-route", "route-summary", "steps-drawer"):
+    # Take the whole resetTrip function (brace-matched), not just up to the
+    # first nested "}" from the geojson source guards.
+    start = js.index("function resetTrip()")
+    body = js[start:]
+    depth = 0
+    end = None
+    for i, ch in enumerate(body):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    assert end is not None
+    reset_body = body[: end + 1]
+    for cleared in (
+        "startRef",
+        "endRef",
+        "routeShown",
+        "pev-route",
+        "route-summary",
+        "steps-drawer",
+        "clearEndpointMarkers",
+        "routeAbort",
+    ):
         assert cleared in reset_body, f"resetTrip does not clear {cleared}"
+    # Markers stay in sync with refs when only one endpoint is set (issue #7).
+    assert "if (!state.endRef) removeMarker(endMarker)" in js
+    assert "function clearEndpointMarkers" in js
 
 
 def test_cache_bust_versions_match():
