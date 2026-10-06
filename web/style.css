@@ -127,6 +127,12 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
   cursor: pointer;
 }
 .mini:hover { border-color: var(--accent); }
+.mini:disabled {
+  opacity: 0.6;
+  cursor: wait;
+  border-color: var(--border);
+}
+
 
 .vehicle-select {
   width: 100%;
