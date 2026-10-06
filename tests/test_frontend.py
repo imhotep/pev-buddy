@@ -173,7 +173,7 @@ def test_steps_keyboard_and_drawer_focus(page):
     page.focus("#steps li:nth-child(2)")
     page.keyboard.press("Enter")
     assert page.get_attribute("#steps li:nth-child(2)", "aria-pressed") == "true"
-    # Closing the drawer returns focus to the "Show steps" toggle...
+    # Closing the drawer returns focus to the toggle that reopens the drawer...
     page.click("#steps-close")
     assert page.evaluate("() => document.activeElement.id") == "show-steps"
     assert page.get_attribute("#show-steps", "aria-expanded") == "false"
@@ -206,3 +206,22 @@ def test_welcome_modal_first_visit_and_opt_out(browser, live_server):
     assert not pg.is_visible("#welcome-modal")
     pg.close()
     ctx.close()
+
+
+def test_route_distances_are_imperial_without_zero_mi_steps(page):
+    """Issue #5: summary/warnings/steps use imperial units; no 0.0 mi step labels."""
+    route_via_ui(page)
+    summary = page.text_content("#route-summary")
+    assert " mi" in summary
+    # Warnings (if any) must not show bare metres.
+    assert " m " not in f" {summary} "
+    dists = page.eval_on_selector_all(
+        "#steps li .dist",
+        "els => els.map(e => e.textContent.trim())",
+    )
+    assert dists, "expected step distance elements"
+    for d in dists:
+        assert d != "0.0 mi"
+        if d:
+            assert d.endswith(" mi") or d.endswith(" ft")
+            assert not d.endswith(" m")

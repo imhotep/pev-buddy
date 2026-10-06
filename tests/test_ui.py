@@ -153,3 +153,15 @@ def test_poi_layers_clustered_with_distinct_kind_colors():
     assert len(set(colors.values())) == 3, "each POI kind needs its own pin color"
     # Clicking a locker must be able to open its bubble.
     assert "showBikeLinkPopup" in js
+
+
+def test_fmtMi_is_imperial_and_hides_zero():
+    """Issue #5: step/total formatter uses ft/mi and never emits 0.0 mi."""
+    js = _text("units.js")
+    assert "0.3048" in js, "imperialFmt should convert short distances to feet"
+    assert "miles < 0.1" in js
+    assert 'return ""' in js
+    html = _text("index.html")
+    assert "units.js?v=" in html
+    sw = _text("sw.js")
+    assert "units.js?v=" in sw
