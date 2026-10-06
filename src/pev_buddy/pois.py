@@ -8,12 +8,62 @@ import numpy as np
 import orjson
 
 from . import config
+from .geo import haversine
+
+# When several query hits form a tight geographic cluster, drop places that
+# sit far outside it. Catches bad Overture/OSM rows that reuse a well-known
+# name with coords elsewhere in the city (issue #1: "Ferry Building,
+# Embarcadero" Historic Site pinned in Bernal Heights ~7 km from the real
+# Embarcadero cluster). Broad one-word queries that legitimately span SF
+# (e.g. "Mission") rarely form a dense cluster, so they are left alone.
+DENSE_CLUSTER_M = 800.0
+OUTLIER_M = 3000.0
+MIN_DENSE_CLUSTER = 3
 
 
 def format_category(cat: str | None) -> str:
     if not cat:
         return "Place"
     return cat.replace("_", " ").title()
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def suppress_coordinate_outliers(
+    results: list[dict],
+    *,
+    dense_m: float = DENSE_CLUSTER_M,
+    outlier_m: float = OUTLIER_M,
+    min_dense: int = MIN_DENSE_CLUSTER,
+) -> list[dict]:
+    """Drop places far from a dense peer cluster in the same result set.
+
+    Uses a robust median of candidate coords; if at least `min_dense` fall
+    within `dense_m` of that median, treat them as the trusted cluster and
+    drop any candidate farther than `outlier_m` from the dense-cluster median.
+    """
+    if len(results) < min_dense + 1:
+        return results
+
+    med_lat = _median([r["lat"] for r in results])
+    med_lon = _median([r["lon"] for r in results])
+    dense = [r for r in results if haversine(med_lon, med_lat, r["lon"], r["lat"]) <= dense_m]
+    if len(dense) < min_dense:
+        return results
+
+    cluster_lat = _median([r["lat"] for r in dense])
+    cluster_lon = _median([r["lon"] for r in dense])
+    kept = [
+        r for r in results if haversine(cluster_lon, cluster_lat, r["lon"], r["lat"]) <= outlier_m
+    ]
+    return kept if kept else results
 
 
 class POIIndex:
@@ -73,8 +123,11 @@ class POIIndex:
                     for i in idxs:
                         scored.append((60, i))
         scored.sort(key=lambda t: (-t[0], len(self.names[t[1]]), self.names[t[1]].casefold()))
+        # Over-fetch before outlier suppression so a dense peer cluster can form
+        # even when a bad row ranks near the top of the truncated window.
+        pool = max(limit * 3, 24)
         out: list[dict] = []
-        for score, i in scored[:limit]:
+        for score, i in scored[:pool]:
             out.append(
                 {
                     "name": self.names[i],
@@ -85,4 +138,4 @@ class POIIndex:
                     "score": score,
                 }
             )
-        return out
+        return suppress_coordinate_outliers(out)[:limit]
