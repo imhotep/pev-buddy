@@ -206,3 +206,18 @@ def test_welcome_modal_first_visit_and_opt_out(browser, live_server):
     assert not pg.is_visible("#welcome-modal")
     pg.close()
     ctx.close()
+
+
+def test_search_results_show_address_subtitle(page):
+    """Issue #2: search hits show the street address under the name."""
+    page.fill("#search", "bakery")
+    page.wait_for_selector("#search-results:not(.hidden)")
+    text = page.text_content("#search-results")
+    assert "Test Bakery" in text
+    assert "12 Test Way" in text
+    sub = page.eval_on_selector(
+        "#search-results .result small",
+        "el => el.textContent",
+    )
+    assert "12 Test Way" in sub
+    assert "·" in sub or "Restaurant" in sub
