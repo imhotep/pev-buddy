@@ -8,6 +8,7 @@ const SHELL = [
   "/index.html",
   "/style.css?v=25",
   "/app.js?v=25",
+  "/reset-markers.js?v=25",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

@@ -61,7 +61,9 @@ def test_map_click_guarded_by_route_shown():
 
 
 def test_reset_clears_route_state():
-    js = _text("app.js")
+    # Issue #7 fix lives in reset-markers.js (loaded after app.js), same pattern
+    # as geolocation.js for #3 — keeps the large app.js out of the PR diff.
+    js = _text("reset-markers.js")
     # Take the whole resetTrip function (brace-matched), not just up to the
     # first nested "}" from the geojson source guards.
     start = js.index("function resetTrip()")
@@ -92,13 +94,19 @@ def test_reset_clears_route_state():
     # Markers stay in sync with refs when only one endpoint is set (issue #7).
     assert "if (!state.endRef) removeMarker(endMarker)" in js
     assert "function clearEndpointMarkers" in js
+    # Override is wired into the page and service-worker shell cache.
+    html = _text("index.html")
+    assert "reset-markers.js?v=" in html
+    sw = _text("sw.js")
+    assert "reset-markers.js?v=" in sw
 
 
 def test_cache_bust_versions_match():
     html = _text("index.html")
     css_v = re.search(r"style\.css\?v=(\d+)", html).group(1)
     js_v = re.search(r"app\.js\?v=(\d+)", html).group(1)
-    assert css_v == js_v, "style.css and app.js should share one cache-bust version"
+    rm_v = re.search(r"reset-markers\.js\?v=(\d+)", html).group(1)
+    assert css_v == js_v == rm_v, "style.css, app.js, and reset-markers.js should share one cache-bust version"
 
 
 def test_page_pinch_zoom_is_disabled_but_map_is_exempt():
