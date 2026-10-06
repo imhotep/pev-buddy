@@ -153,3 +153,31 @@ def test_poi_layers_clustered_with_distinct_kind_colors():
     assert len(set(colors.values())) == 3, "each POI kind needs its own pin color"
     # Clicking a locker must be able to open its bubble.
     assert "showBikeLinkPopup" in js
+
+
+def test_use_my_location_surfaces_errors_in_page():
+    """Issue #3: geolocation failures must not rely on window.alert (often
+    suppressed after async callbacks) — feedback goes through #route-summary.
+    """
+    app = _text("app.js")
+    geo = _text("geolocation.js")
+    html = _text("index.html")
+    # Location handling is a dedicated script loaded after app.js.
+    assert "geolocation.js" in html
+    assert "function useMyLocation" in app  # original binder; overridden at runtime by geolocation.js
+    assert "async function useMyLocation" in geo
+    assert "showLocationStatus" in geo
+    assert "locationErrorMessage" in geo
+    assert "Getting your location" in geo
+    assert "Locating" in geo
+    for needle in (
+        "permission denied",
+        "timed out",
+        "HTTPS",
+        "isSecureContext",
+        "enable location or pick a place",
+    ):
+        assert needle in geo, f"useMyLocation missing feedback for {needle!r}"
+    assert "alert(" not in geo, "geolocation.js must not use window.alert for errors"
+    css = _text("style.css")
+    assert ".mini:disabled" in css
