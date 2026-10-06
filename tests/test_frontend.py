@@ -206,3 +206,86 @@ def test_welcome_modal_first_visit_and_opt_out(browser, live_server):
     assert not pg.is_visible("#welcome-modal")
     pg.close()
     ctx.close()
+
+
+def test_use_my_location_permission_denied_shows_feedback(browser, live_server):
+    """Clicking Use my location with a denied/failing geolocation API must
+    surface an in-page error (issue #3), not fail silently."""
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    pg = ctx.new_page()
+    pg.add_init_script(
+        """
+        localStorage.setItem('pev-welcome-dismissed', '1');
+        navigator.geolocation.getCurrentPosition = (success, error) => {
+          setTimeout(() => error({ code: 1, message: 'User denied Geolocation' }), 20);
+        };
+        if (navigator.permissions && navigator.permissions.query) {
+          const orig = navigator.permissions.query.bind(navigator.permissions);
+          navigator.permissions.query = (desc) => {
+            if (desc && desc.name === 'geolocation') {
+              return Promise.resolve({ state: 'prompt', onchange: null });
+            }
+            return orig(desc);
+          };
+        }
+        """
+    )
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{live_server}/", wait_until="networkidle")
+    pg.wait_for_function("() => typeof useMyLocation === 'function'")
+    pg.wait_for_selector("#map-loading", state="detached", timeout=20000)
+    pg.click("#use-location")
+    pg.wait_for_function(
+        """() => {
+          const s = document.getElementById('route-summary');
+          return s && !s.classList.contains('hidden') && /permission denied/i.test(s.textContent);
+        }""",
+        timeout=5000,
+    )
+    assert "permission denied" in pg.text_content("#route-summary").lower()
+    # Buttons return to idle after the failure.
+    assert pg.eval_on_selector("#use-location", "el => el.disabled") is False
+    assert pg.text_content("#use-location") == "Use my location"
+    pg.close()
+    ctx.close()
+    assert not errors, f"uncaught JS errors: {errors}"
+
+
+def test_use_my_location_success_sets_start(browser, live_server):
+    """A successful geolocation fix sets Start to My location."""
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    pg = ctx.new_page()
+    pg.add_init_script(
+        """
+        localStorage.setItem('pev-welcome-dismissed', '1');
+        navigator.geolocation.getCurrentPosition = (success, error) => {
+          setTimeout(() => success({
+            coords: { latitude: 37.79544, longitude: -122.39361, accuracy: 10 },
+            timestamp: Date.now(),
+          }), 20);
+        };
+        if (navigator.permissions && navigator.permissions.query) {
+          navigator.permissions.query = (desc) => {
+            if (desc && desc.name === 'geolocation') {
+              return Promise.resolve({ state: 'granted', onchange: null });
+            }
+            return Promise.resolve({ state: 'prompt', onchange: null });
+          };
+        }
+        """
+    )
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{live_server}/", wait_until="networkidle")
+    pg.wait_for_function("() => typeof useMyLocation === 'function'")
+    pg.wait_for_selector("#map-loading", state="detached", timeout=20000)
+    pg.click("#use-location")
+    pg.wait_for_function(
+        "() => document.getElementById('start-label').textContent === 'My location'",
+        timeout=5000,
+    )
+    assert pg.text_content("#start-label") == "My location"
+    pg.close()
+    ctx.close()
+    assert not errors, f"uncaught JS errors: {errors}"
