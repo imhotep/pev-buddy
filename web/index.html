@@ -34,19 +34,19 @@
       <div class="trip-caption">Vehicle type</div>
       <select id="vehicle" class="vehicle-select" aria-label="Vehicle type"></select>
       <div id="vehicle-desc" class="vehicle-desc" aria-live="polite"></div>
-      <div class="trip-row">
+      <div id="start-row" class="trip-row">
         <span class="dot start"></span>
         <div class="trip-labels">
           <div class="trip-caption">Start</div>
-          <div id="start-label" class="trip-value" aria-live="polite">Not set — search or click the map</div>
-          <button id="use-location" class="mini">Use my location</button>
+          <div id="start-label" class="trip-value" aria-live="polite"></div>
+          <button id="use-location" class="mini locate"><span aria-hidden="true">◎</span> Use my location</button>
         </div>
       </div>
-      <div class="trip-row">
+      <div id="end-row" class="trip-row">
         <span class="dot end"></span>
         <div class="trip-labels">
           <div class="trip-caption">Destination</div>
-          <div id="end-label" class="trip-value" aria-live="polite">Not set — search, click the map, or a pin</div>
+          <div id="end-label" class="trip-value" aria-live="polite"></div>
           <button id="use-location-end" class="mini">Use my location</button>
         </div>
       </div>
@@ -72,7 +72,7 @@
       <h2 id="welcome-title">Welcome to PEV Buddy</h2>
       <p>Turn-by-turn navigation for e-bikes, e-scooters &amp; mopeds in San Francisco — from anywhere to anywhere.</p>
       <ul>
-        <li>Set a <b>start</b> and a <b>destination</b>: search, click the map, or use your current location.</li>
+        <li>Set a <b>start</b> and a <b>destination</b>: use your current location, search, or tap the map and choose <b>Start here</b> / <b>Go here</b>. Drag either pin to adjust.</li>
         <li>Pick your vehicle type — routes and speed rules follow California law for that vehicle.</li>
         <li>Map pins: <span class="legend-dot amber" aria-hidden="true"></span>chargers · <span class="legend-dot blue" aria-hidden="true"></span>BikeLink lockers · <span class="legend-dot violet" aria-hidden="true"></span>bike racks. Tap one to navigate there.</li>
       </ul>

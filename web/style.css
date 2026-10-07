@@ -107,7 +107,22 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 #search-results .result small { display: block; color: var(--muted); margin-top: 2px; }
 
 #trip { padding: 4px 16px 12px; border-bottom: 1px solid var(--border); }
-.trip-row { display: flex; gap: 10px; padding: 8px 0; align-items: flex-start; }
+.trip-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  margin: 0 -8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  align-items: flex-start;
+}
+/* Empty state: the next endpoint to fill in (Start first) stands out. */
+.trip-row.needs-input {
+  border-color: rgba(53, 208, 127, 0.55);
+  background: rgba(53, 208, 127, 0.08);
+}
+.trip-row.needs-input .trip-value { color: var(--text); }
+.trip-labels { min-width: 0; }
 .dot {
   width: 12px; height: 12px; border-radius: 50%;
   margin-top: 4px; flex: none;
@@ -128,6 +143,36 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 }
 .mini:hover { border-color: var(--accent); }
 .mini:disabled { opacity: 0.6; cursor: progress; }
+/* The quickest way to set a start on a phone — make it look like one. */
+.mini.locate {
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Start/destination map pins: a 44px grab area around a visible dot. */
+.endpoint-pin {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+.endpoint-pin::after {
+  content: "";
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid #101820;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.endpoint-pin.start::after { background: var(--accent); }
+.endpoint-pin.end::after { background: var(--route); }
+.endpoint-pin:active { cursor: grabbing; }
+.endpoint-pin:active::after { transform: scale(1.25); }
 
 .trip-status {
   margin-top: 6px;
@@ -395,20 +440,31 @@ a:focus-visible,
   text-decoration: none;
 }
 .bubble-link:hover { text-decoration: underline; }
+.bubble.pick .bubble-title { margin-bottom: 0; }
+.bubble-actions { display: flex; gap: 8px; margin-top: 10px; }
+.bubble-start,
 .bubble-route {
-  margin-top: 10px;
-  width: 100%;
+  flex: 1;
+  min-height: 40px;
   padding: 8px 10px;
-  border: none;
   border-radius: 7px;
-  background: var(--accent);
-  color: #0c2318;
   font-weight: 700;
   font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
 }
+.bubble-start {
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+.bubble-route {
+  border: 1px solid var(--route);
+  background: var(--route);
+  color: #1a1a1a;
+}
+.bubble-start:hover,
 .bubble-route:hover { filter: brightness(1.1); }
-.bubble-route:disabled { opacity: 0.5; cursor: wait; }
 
 @media (prefers-reduced-motion: reduce) {
   #map-loading .spinner { animation: none; }

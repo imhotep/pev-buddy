@@ -231,6 +231,24 @@ def test_route_warnings_use_imperial_units(client):
         assert any(re.search(r"\d (ft|mi)\b", w) for w in warnings)
 
 
+def test_reverse_labels_by_nearest_address(client):
+    # The synthetic bundle has 5 MAIN ST at node A and 10 SIDE ST at D (100 m south).
+    def label(dx, dy):
+        lon, lat = m_to_lonlat(dx, dy)
+        r = client.get("/api/reverse", params={"lat": lat, "lon": lon})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    on_top = label(5, 0)
+    assert on_top["label"] == "5 Main St" and on_top["address"] == "5 Main St"
+    near = label(0, -40)
+    assert near["label"] == "Near 5 Main St"
+    assert 35 < near["distance_m"] < 45
+    assert label(0, -70)["label"] == "Near 10 Side St"
+    nothing = label(1000, 1000)
+    assert nothing == {**nothing, "label": "Dropped pin", "address": None, "distance_m": None}
+
+
 def test_route_unknown_station_is_404(client):
     r = client.post(
         "/api/route",

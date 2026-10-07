@@ -272,15 +272,78 @@ function emptyFC() {
   return { type: "FeatureCollection", features: [] };
 }
 
-const startMarker = new maplibregl.Marker({ element: makeDot("#35d07f") });
-const endMarker = new maplibregl.Marker({ element: makeDot("#ffb02e") });
+// Start/destination pins. Drag one to move that endpoint; the route follows.
+const startMarker = new maplibregl.Marker({ element: makeEndpointPin("start"), draggable: true });
+const endMarker = new maplibregl.Marker({ element: makeEndpointPin("end"), draggable: true });
+startMarker.on("dragend", () => setStart(pinRef(startMarker.getLngLat())));
+endMarker.on("dragend", () => setEnd(pinRef(endMarker.getLngLat())));
 
-function makeDot(color) {
+function makeEndpointPin(which) {
+  // A 44px touch target around the visible dot, so it can be grabbed with a
+  // finger. Decorative to assistive tech — the sidebar labels carry the info.
   const el = document.createElement("div");
-  // Decorative — the sidebar start/destination labels carry the same info as text.
+  el.className = `endpoint-pin ${which}`;
   el.setAttribute("aria-hidden", "true");
-  el.style.cssText = `width:14px;height:14px;border-radius:50%;background:${color};border:2.5px solid #101820;box-shadow:0 1px 6px rgba(0,0,0,.6);`;
   return el;
+}
+
+// A point picked on the map (tap or drag). It reads "Dropped pin" until
+// /api/reverse names the nearest address ("Near 123 Valencia St"); `labeled`
+// resolves once that lookup settles.
+function pinRef(lngLat) {
+  const ref = { kind: "pin", lat: lngLat.lat, lon: lngLat.lng, label: "Dropped pin", address: null };
+  ref.labeled = labelPin(ref);
+  return ref;
+}
+
+async function labelPin(ref) {
+  try {
+    const res = await fetch(`/api/reverse?lat=${ref.lat}&lon=${ref.lon}`);
+    if (!res.ok) return;
+    const r = await res.json();
+    ref.label = r.label;
+    ref.address = r.address;
+    syncTripLabels();
+  } catch {
+    // Offline or data not loaded yet: "Dropped pin" stands.
+  }
+}
+
+// "Start here" / "Go here" buttons shared by every map bubble, so a tap on a
+// pin is never a dead end: whatever was tapped can become either endpoint.
+function pickActions(popup, ref) {
+  const row = document.createElement("div");
+  row.className = "bubble-actions";
+  for (const [text, cls, set] of [
+    ["Start here", "bubble-start", setStart],
+    ["Go here", "bubble-route", setEnd],
+  ]) {
+    const b = document.createElement("button");
+    b.className = cls;
+    b.textContent = text;
+    b.addEventListener("click", () => {
+      popup.remove();
+      set(ref);
+    });
+    row.appendChild(b);
+  }
+  return row;
+}
+
+// Tap on empty map: offer the spot as start or destination. Works while a
+// route is shown too — the choice replaces that endpoint and reroutes.
+function showPickPopup(lngLat) {
+  const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 8 }).setLngLat(lngLat);
+  const card = document.createElement("div");
+  card.className = "bubble pick";
+  const title = document.createElement("div");
+  title.className = "bubble-title";
+  title.textContent = "Dropped pin";
+  const ref = pinRef(lngLat);
+  ref.labeled.then(() => (title.textContent = ref.label));
+  card.append(title, pickActions(popup, ref));
+  popup.setDOMContent(card).addTo(map);
+  return popup;
 }
 
 // ---------------------------------------------------------------- stations
@@ -317,20 +380,12 @@ function showStationPopup(s) {
     card.appendChild(a);
   }
 
-  const btn = document.createElement("button");
-  btn.className = "bubble-route";
-  btn.textContent = "Navigate here";
-  btn.addEventListener("click", () => {
-    popup.remove();
-    const label = s.name || "Charging station";
-    // Prefer the station id; fall back to coordinates if it is unavailable.
-    const ref = s.id
-      ? { kind: "station", station_id: s.id, lat: s.lat, lon: s.lon, label }
-      : { kind: "coords", lat: s.lat, lon: s.lon, label };
-    setEnd(ref);
-    promptStartIfMissing();
-  });
-  card.appendChild(btn);
+  const label = s.name || "Charging station";
+  // Prefer the station id; fall back to coordinates if it is unavailable.
+  const ref = s.id
+    ? { kind: "station", station_id: s.id, lat: s.lat, lon: s.lon, label }
+    : { kind: "coords", lat: s.lat, lon: s.lon, label };
+  card.appendChild(pickActions(popup, ref));
 
   popup.setDOMContent(card).addTo(map);
   return popup;
@@ -381,19 +436,11 @@ function showBikeLinkPopup(b) {
     card.appendChild(access);
   }
 
-  const btn = document.createElement("button");
-  btn.className = "bubble-route";
-  btn.textContent = "Navigate here";
-  btn.addEventListener("click", () => {
-    popup.remove();
-    const label = b.name || "BikeLink locker";
-    const ref = b.id
-      ? { kind: "bikelink", station_id: b.id, lat: b.lat, lon: b.lon, label }
-      : { kind: "coords", lat: b.lat, lon: b.lon, label };
-    setEnd(ref);
-    promptStartIfMissing();
-  });
-  card.appendChild(btn);
+  const label = b.name || "BikeLink locker";
+  const ref = b.id
+    ? { kind: "bikelink", station_id: b.id, lat: b.lat, lon: b.lon, label }
+    : { kind: "coords", lat: b.lat, lon: b.lon, label };
+  card.appendChild(pickActions(popup, ref));
 
   popup.setDOMContent(card).addTo(map);
   return popup;
@@ -422,16 +469,8 @@ function showRackPopup(r) {
 
   card.append(title, meta);
 
-  const btn = document.createElement("button");
-  btn.className = "bubble-route";
-  btn.textContent = "Navigate here";
-  btn.addEventListener("click", () => {
-    popup.remove();
-    // The router doesn't know rack ids — route to the coordinates.
-    setEnd({ kind: "coords", lat: r.lat, lon: r.lon, label: r.name || "Bike rack" });
-    promptStartIfMissing();
-  });
-  card.appendChild(btn);
+  // The router doesn't know rack ids — route to the coordinates.
+  card.appendChild(pickActions(popup, { kind: "coords", lat: r.lat, lon: r.lon, label: r.name || "Bike rack" }));
 
   popup.setDOMContent(card).addTo(map);
   return popup;
@@ -439,22 +478,33 @@ function showRackPopup(r) {
 
 // ---------------------------------------------------------------- trip refs
 
-const DEFAULT_START_LABEL = "Not set — search or click the map";
-const DEFAULT_END_LABEL = "Not set — search, click the map, or a pin";
+const DEFAULT_START_LABEL = "Not set — use your location, search, or tap the map and choose “Start here”";
+const DEFAULT_END_LABEL = "Not set — search, or tap the map or a pin and choose “Go here”";
 
 function setStart(ref) {
   state.startRef = ref;
-  document.getElementById("start-label").textContent = ref.label;
   startMarker.setLngLat([ref.lon, ref.lat]).addTo(map);
+  syncTripLabels();
   maybeRoute();
 }
 
 function setEnd(ref) {
   state.endRef = ref;
-  document.getElementById("end-label").textContent = ref.label;
   endMarker.setLngLat([ref.lon, ref.lat]).addTo(map);
+  syncTripLabels();
   maybeRoute();
 }
+
+// Start/Destination labels, plus the empty-state cue: the next row that
+// needs filling in (Start first) is highlighted.
+function syncTripLabels() {
+  const { startRef, endRef } = state;
+  document.getElementById("start-label").textContent = startRef ? startRef.label : DEFAULT_START_LABEL;
+  document.getElementById("end-label").textContent = endRef ? endRef.label : DEFAULT_END_LABEL;
+  document.getElementById("start-row").classList.toggle("needs-input", !startRef);
+  document.getElementById("end-row").classList.toggle("needs-input", !!startRef && !endRef);
+}
+syncTripLabels();
 
 function maybeRoute() {
   if (state.startRef && state.endRef) computeRoute();
@@ -470,8 +520,7 @@ function resetTrip() {
   state.activeStep = null;
   startMarker.remove();
   endMarker.remove();
-  document.getElementById("start-label").textContent = DEFAULT_START_LABEL;
-  document.getElementById("end-label").textContent = DEFAULT_END_LABEL;
+  syncTripLabels();
   showTripStatus("");
   if (map.getSource("pev-route")) map.getSource("pev-route").setData(emptyFC());
   if (map.getSource("pev-route-casing")) map.getSource("pev-route-casing").setData(emptyFC());
@@ -668,11 +717,10 @@ document.addEventListener("click", (e) => {
 });
 
 // map click: a pin shows its bubble; a count bubble zooms in (handled by the
-// pev-clusters handler below); empty space sets start (if a destination
-// exists) or destination. While a route is on the map, clicks do nothing
-// (pan only) so the route can't be accidentally edited.
+// pev-clusters handler below); empty space opens a "Start here / Go here"
+// popup. Every bubble offers both, so no tap is a dead end, and a route on
+// the map can be edited the same way (POI pins are hidden while it is).
 map.on("click", (e) => {
-  if (state.routeShown) return;
   // Cluster clicks are the zoom handler's job — don't treat them as empty space.
   if (map.queryRenderedFeatures(e.point, { layers: ["pev-clusters"] }).length) return;
   const feats = map.queryRenderedFeatures(e.point, { layers: ["pev-pois"] });
@@ -714,12 +762,7 @@ map.on("click", (e) => {
     }
     return;
   }
-  const ref = { kind: "coords", lat: e.lngLat.lat, lon: e.lngLat.lng, raw: true, label: `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}` };
-  if (state.endRef) setStart(ref);
-  else {
-    setEnd(ref);
-    promptStartIfMissing();
-  }
+  showPickPopup(e.lngLat);
 });
 
 // Click a count bubble: zoom in until it breaks apart.
@@ -731,14 +774,6 @@ map.on("click", "pev-clusters", (e) => {
     .getClusterExpansionZoom(f.properties.cluster_id)
     .then((zoom) => map.easeTo({ center: f.geometry.coordinates, zoom, ...FLY }));
 });
-
-// When a destination is chosen but there is no start, nudge the user.
-function promptStartIfMissing() {
-  if (state.startRef || !state.endRef) return;
-  const summary = document.getElementById("route-summary");
-  summary.classList.remove("hidden");
-  summary.innerHTML = `<span class="warn">Pick a start point</span> — use “Use my location”, the search box, or click the map.`;
-}
 
 // ------------------------------------------------------- mobile navigation
 
@@ -871,7 +906,10 @@ function refToApi(ref) {
     return { station_id: ref.station_id };
   }
   const out = { lat: ref.lat, lon: ref.lon };
-  if (ref.label && !ref.raw) out.label = ref.label;
+  // A map pin names its matched address (so the last step reads "Arrive at
+  // 123 Valencia St."), never "Near …" or "Dropped pin".
+  const label = ref.kind === "pin" ? ref.address : ref.label;
+  if (label) out.label = label;
   return out;
 }
 

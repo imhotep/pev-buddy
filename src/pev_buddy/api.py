@@ -15,14 +15,15 @@ from pydantic import BaseModel
 from starlette.middleware.gzip import GZipMiddleware
 
 from . import config
-from .geo import format_distance
 from .bikelink import BikeLinkStore
-from .geocode import Geocoder
+from .geo import format_distance
+from .geocode import REVERSE_EXACT_M, Geocoder, display_address
 from .graph import RoadGraph
 from .models import (
     BikeLinkOut,
     GeocodeOut,
     PointRef,
+    ReverseOut,
     RouteOut,
     RouteRequest,
     RouteStepOut,
@@ -170,6 +171,25 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         if state.geocoder is None:
             raise HTTPException(503, "data not loaded yet")
         return state.geocoder.search(q, limit=min(max(limit, 1), 25))
+
+    @app.get("/api/reverse", response_model=ReverseOut)
+    def reverse(lat: float, lon: float) -> dict:
+        """Label a map-picked point by its nearest address ("Near 123 Valencia
+        St"), falling back to "Dropped pin" when no address is within range."""
+        if state.geocoder is None:
+            raise HTTPException(503, "data not loaded yet")
+        hit = state.geocoder.reverse(lon, lat)
+        if hit is None:
+            return {"label": "Dropped pin", "address": None, "distance_m": None, "lon": lon, "lat": lat}
+        address = display_address(hit["number"], hit["street"])
+        exact = hit["distance_m"] <= REVERSE_EXACT_M
+        return {
+            "label": address if exact else f"Near {address}",
+            "address": address,
+            "distance_m": round(hit["distance_m"], 1),
+            "lon": lon,
+            "lat": lat,
+        }
 
     @app.get("/api/search", response_model=list[SearchItem])
     def search(q: str, limit: int = 8) -> list[dict]:

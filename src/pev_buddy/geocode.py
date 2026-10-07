@@ -2,16 +2,54 @@
 
 from __future__ import annotations
 
+import math
 import re
 from difflib import get_close_matches
+from functools import cached_property
 from pathlib import Path
 
 import numpy as np
 import orjson
 
-from . import config
+from . import config, geo
 
 _NUM_RE = re.compile(r"(\d{1,6})[A-Z0-9]*")
+
+REVERSE_MAX_M = 150.0  # farther than this from any address, a point has no "near" label
+REVERSE_EXACT_M = 25.0  # within this, a point is labeled as the address itself
+_CELL_M = 100.0  # reverse-lookup grid cell size
+
+
+def display_address(number: str | None, street: str) -> str:
+    """Overture's upper-case "123 VALENCIA ST" as "123 Valencia St" (ordinals
+    stay "3rd", not str.title()'s "3Rd")."""
+    words = [w.lower() if w[:1].isdigit() else w.title() for w in street.split()]
+    return " ".join(([number] if number else []) + words)
+
+
+class _Grid:
+    """A uniform ~100 m grid over address points: row indices sorted by cell
+    key, so the rows of a run of cells are one searchsorted slice."""
+
+    def __init__(self, lon: np.ndarray, lat: np.ndarray):
+        lat0 = float(np.mean(lat)) if len(lat) else 0.0
+        self.dlat = _CELL_M / 111_320.0
+        self.dlon = _CELL_M / (111_320.0 * math.cos(math.radians(lat0)))
+        self.lon0 = float(lon.min()) if len(lon) else 0.0
+        self.lat0 = float(lat.min()) if len(lat) else 0.0
+        ix = ((lon - self.lon0) / self.dlon).astype(np.int64)
+        iy = ((lat - self.lat0) / self.dlat).astype(np.int64)
+        self.nx = int(ix.max()) + 1 if len(ix) else 0
+        self.ny = int(iy.max()) + 1 if len(iy) else 0
+        keys = ix * self.ny + iy
+        self.order = np.argsort(keys, kind="stable")
+        self.keys = keys[self.order]
+
+    def cell(self, lon: float, lat: float) -> tuple[int, int]:
+        return (
+            math.floor((lon - self.lon0) / self.dlon),
+            math.floor((lat - self.lat0) / self.dlat),
+        )
 
 
 def _read_rows(path: Path) -> list[tuple]:
@@ -148,6 +186,46 @@ class Geocoder:
 
         results.sort(key=lambda r: (-r["score"], r["street"].lower(), r["number"] or ""))
         return results[:limit]
+
+    def reverse(self, lon: float, lat: float, max_m: float = REVERSE_MAX_M) -> dict | None:
+        """The address nearest to (lon, lat), or None if none is within max_m.
+
+        Looks only at the grid cells around the point (a few hundred
+        candidates in dense SF blocks) instead of scanning all ~430k rows.
+        """
+        if not len(self.lon):
+            return None
+        grid = self._grid
+        cx, cy = grid.cell(lon, lat)
+        reach = int(np.ceil(max_m / _CELL_M))
+        spans = []
+        for x in range(cx - reach, cx + reach + 1):
+            if not 0 <= x < grid.nx:
+                continue
+            y0, y1 = max(cy - reach, 0), min(cy + reach, grid.ny - 1)
+            if y0 > y1:
+                continue
+            # Cells in one grid column are contiguous in key order.
+            lo = np.searchsorted(grid.keys, x * grid.ny + y0, side="left")
+            hi = np.searchsorted(grid.keys, x * grid.ny + y1, side="right")
+            if hi > lo:
+                spans.append(grid.order[lo:hi])
+        if not spans:
+            return None
+        rows = np.concatenate(spans)
+        d = geo.fast_distances(lon, lat, np.column_stack((self.lon[rows], self.lat[rows])))
+        best = int(np.argmin(d))
+        if d[best] > max_m:
+            return None
+        j = int(rows[best])
+        street = self.street_names[int(np.searchsorted(self.row_offsets, j, side="right")) - 1]
+        item = self._item(street, j, score=100)
+        item["distance_m"] = float(d[best])
+        return item
+
+    @cached_property
+    def _grid(self) -> "_Grid":
+        return _Grid(self.lon, self.lat)
 
     def _item(self, street: str, j: int, score: int) -> dict:
         number = self.numbers[int(self.number_code[j])]

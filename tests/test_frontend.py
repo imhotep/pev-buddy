@@ -208,6 +208,71 @@ def test_welcome_modal_first_visit_and_opt_out(browser, live_server):
     ctx.close()
 
 
+def screen_xy(page, dx, dy, zoom=None):
+    """Page coordinates of a synthetic-network point (meters from ORIGIN),
+    optionally re-centering the map there first at the given zoom."""
+    lon, lat = m_to_lonlat(dx, dy)
+    if zoom is not None:
+        page.evaluate(f"() => map.jumpTo({{ center: [{lon}, {lat}], zoom: {zoom} }})")
+        page.wait_for_function("() => map.loaded() && !map.isMoving()")
+    return page.evaluate(
+        f"""() => {{
+          const p = map.project([{lon}, {lat}]);
+          const r = map.getCanvas().getBoundingClientRect();
+          return [r.left + p.x, r.top + p.y];
+        }}"""
+    )
+
+
+def test_empty_state_highlights_the_next_endpoint(page):
+    assert page.eval_on_selector("#start-row", "el => el.classList.contains('needs-input')")
+    assert not page.eval_on_selector("#end-row", "el => el.classList.contains('needs-input')")
+    alon, alat = m_to_lonlat(0, 0)
+    page.evaluate(f"() => setStart({{ kind: 'coords', lat: {alat}, lon: {alon}, label: 'Test start' }})")
+    assert not page.eval_on_selector("#start-row", "el => el.classList.contains('needs-input')")
+    assert page.eval_on_selector("#end-row", "el => el.classList.contains('needs-input')")
+
+
+def test_map_click_popup_sets_start_with_address_label(page):
+    # 40 m south of 5 MAIN ST (node A), on empty map.
+    x, y = screen_xy(page, 0, -40, zoom=17)
+    page.mouse.click(x, y)
+    page.wait_for_selector(".maplibregl-popup .bubble.pick")
+    page.wait_for_function(
+        "() => document.querySelector('.bubble.pick .bubble-title').textContent === 'Near 5 Main St'"
+    )
+    page.click(".bubble-start")
+    assert page.text_content("#start-label") == "Near 5 Main St"
+    assert page.query_selector(".maplibregl-popup") is None
+    # The first tap set the start — not, as it used to, the destination.
+    assert page.text_content("#end-label").startswith("Not set")
+
+
+def test_map_click_replaces_endpoint_while_route_is_shown(page):
+    route_via_ui(page)
+    x, y = screen_xy(page, 100, -100, zoom=17)  # node E, on Side Street
+    page.mouse.click(x, y)
+    page.wait_for_selector(".bubble.pick")
+    with page.expect_response("**/api/route") as resp:
+        page.click(".bubble-route")
+    assert resp.value.ok
+    page.wait_for_function("() => !document.getElementById('route-summary').textContent.includes('Finding')")
+    assert "Test end" not in page.text_content("#route-summary")
+    assert page.text_content("#end-label") != "Test end"
+
+
+def test_dragging_start_pin_relabels_and_reroutes(page):
+    route_via_ui(page)
+    x0, y0 = screen_xy(page, 0, 0, zoom=17)
+    x1, y1 = screen_xy(page, 0, -60)  # 40 m from 10 SIDE ST (node D)
+    with page.expect_response("**/api/route"):
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=8)
+        page.mouse.up()
+    page.wait_for_function("() => document.getElementById('start-label').textContent === 'Near 10 Side St'")
+
+
 def set_trip(page, end=(200, -100), end_label="Test end"):
     """Set start (node A) and a destination without waiting for the route."""
     alon, alat = m_to_lonlat(0, 0)

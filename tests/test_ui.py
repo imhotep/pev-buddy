@@ -50,14 +50,19 @@ def test_app_js_binds_every_control_in_html():
         assert f'getElementById("{i}")' in js, f"app.js never references #{i}"
 
 
-def test_map_click_guarded_by_route_shown():
-    # While a route is on the map, clicks must only pan — the guard has to be
-    # the first thing the click handler does, before any point is set.
+def test_map_click_offers_start_and_destination():
+    # Empty-map clicks open a "Start here / Go here" popup rather than
+    # silently picking an endpoint, and keep working while a route is shown.
     js = _text("app.js")
-    handler = js.split('map.on("click"', 1)[1]
-    guard = handler.find("if (state.routeShown) return;")
-    first_action = handler.find("queryRenderedFeatures")
-    assert 0 <= guard < first_action
+    handler = js.split('map.on("click", (e)', 1)[1].split("\n});\n", 1)[0]
+    assert "showPickPopup(e.lngLat)" in handler
+    assert "state.routeShown" not in handler
+    actions = js.split("function pickActions(", 1)[1].split("\n}\n", 1)[0]
+    assert '"Start here"' in actions and '"Go here"' in actions
+    # Endpoints are draggable and reroute on drop.
+    assert js.count("draggable: true") == 2
+    assert 'startMarker.on("dragend"' in js and 'endMarker.on("dragend"' in js
+    assert "/api/reverse" in js
 
 
 def test_reset_clears_route_state():
