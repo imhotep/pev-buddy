@@ -14,6 +14,7 @@ def build_steps(
     graph: RoadGraph,
     edge_idxs: list[int],
     destination_name: str | None = None,
+    vehicle: str = config.DEFAULT_VEHICLE,
 ) -> list[dict]:
     """Build human-readable steps. Each step:
     {index, maneuver, instruction, road, distance_m, duration_s, turn_point, bearing_after, geometry}
@@ -37,6 +38,11 @@ def build_steps(
 
     geoms = [graph.edge_geometry(e) for e in edge_idxs]
     lengths = [graph.edges[e][4] for e in edge_idxs]
+    veh = config.VEHICLE_TYPES[vehicle]
+    # Per-edge travel time (vehicle cap x road limit), summed per step.
+    durations = [
+        config.edge_duration_s(veh, graph.edges[e][4], graph.edges[e][5], graph.edges[e][6]) for e in edge_idxs
+    ]
     segs = [graph.edges[e][2] for e in edge_idxs]
     names = [graph.segments[s]["name"] for s in segs]
 
@@ -200,11 +206,11 @@ def build_steps(
                     coords.append(pt)
         return coords
 
-    speed_mps = config.AVG_SPEED_MPH * 0.44704
     out: list[dict] = []
     for j, st in enumerate(steps):
         i0, i1 = st["i0"], st["i1"]
         dist = 0.0 if st.get("zero") else sum(lengths[i0 : i1 + 1])
+        dur = 0.0 if st.get("zero") else sum(durations[i0 : i1 + 1])
         # Geometry of the segment this step covers (for map highlighting).
         geometry = [list(graph.node(st["from_node"]))] if st.get("zero") else chunk_geometry(i0, i1)
         out.append(
@@ -214,7 +220,7 @@ def build_steps(
                 "instruction": st["instruction"],
                 "road": st["road"],
                 "distance_m": dist,
-                "duration_s": dist / speed_mps if speed_mps else 0.0,
+                "duration_s": dur,
                 "turn_point": [float(c) for c in graph.node(st["from_node"])] if j > 0 else None,
                 "bearing_after": outbound_bearing(i1),
                 "geometry": geometry,
