@@ -53,6 +53,16 @@ if [ "$FORCE_SYNC" = 1 ] || [ ! -f data/graph.npz ]; then
   fi
 fi
 
+# --- display-only road layer for the browser map ---
+# Cheap to derive from roads.geojson (no Overture download, far less RAM than
+# sync), so existing installs pick it up on the next update. Rebuilt whenever
+# roads.geojson is newer (also true when the display file is missing). Not
+# fatal: the frontend falls back to roads.geojson if it's absent.
+if [ -f data/roads.geojson ] && [ data/roads.geojson -nt data/roads.display.geojson ]; then
+  .venv/bin/python -m pev_buddy.display_roads \
+    || echo >&2 "display roads build failed; the map will fall back to roads.geojson"
+fi
+
 # --- systemd service (localhost only; Funnel provides the public edge) ---
 sudo tee /etc/systemd/system/pev-buddy.service >/dev/null <<EOF
 [Unit]
