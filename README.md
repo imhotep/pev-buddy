@@ -8,11 +8,72 @@ lockers, and ~6k sidewalk bike racks along the way. Built entirely on
 
 [![tests](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml/badge.svg)](https://github.com/imhotep/pev-buddy/actions/workflows/test.yml)
 
-**Live: [pev-buddy.anislab.com](https://pev-buddy.anislab.com)** — installable
-as a PWA; on phones it adds a live location dot, heading-up map rotation, and
-a screen wake lock while you ride.
+**Live: [pev-buddy.anislab.com](https://pev-buddy.anislab.com)** — open it in
+your phone's browser, or add it to your home screen
+([how](#use-it-on-your-phone)). Tap **Start ride** and it guides you
+hands-free: a big next-turn banner, voice prompts, and automatic rerouting.
 
 ![PEV Buddy: an e-scooter route across San Francisco with turn-by-turn steps](docs/screenshot.png)
+
+## Use it on your phone
+
+PEV Buddy is a web app: it works the same in a mobile browser as when
+installed. Installing just gives it a home-screen icon and a full-screen
+window. The phone-specific bits (the location button and compass heading-up
+while riding) turn on for any touch screen (`pointer: coarse`), installed
+or not.
+
+**iPhone (Safari)**
+
+1. Open [pev-buddy.anislab.com](https://pev-buddy.anislab.com) in **Safari**.
+2. Tap **Share** (the square with an up arrow) → **Add to Home Screen** → **Add**.
+3. Open it from the home screen. Allow **Location** when asked. When you tap
+   **Start ride**, allow **Motion & Orientation** too: that is the compass
+   that turns the map to face your direction of travel.
+4. If you dismissed a prompt: **Settings → Privacy & Security → Location
+   Services → Safari Websites → While Using the App**. Motion access is
+   re-asked on the next **Start ride**.
+
+**Android (Chrome)**
+
+1. Open [pev-buddy.anislab.com](https://pev-buddy.anislab.com) in **Chrome**.
+2. Tap **⋮** → **Install app** (or **Add to Home screen**) → **Install**.
+3. Open it and allow **Location** when asked. If you blocked it: tap the
+   site-settings icon left of the address → **Permissions → Location → Allow**.
+
+**Riding with it**
+
+1. **Set a start.** Tap **◎ Use my location**, or search, or tap the map and
+   choose **Start here**.
+2. **Set a destination.** Search, or tap the map (or any charger, locker, or
+   rack pin) and choose **Go here**. Drag either pin to adjust; picked points
+   are labeled by the nearest address.
+3. **Pick your vehicle type.** The route follows California law for it.
+4. **Tap ▶ Start ride** and put the phone in its mount. The banner shows the
+   next turn and a live countdown in feet/miles. Voice says "In 500 feet,
+   turn right onto …" and again just before the turn. It advances by itself
+   as you pass each turn, reroutes if you leave the route, and keeps the
+   screen on.
+5. **🔊 Voice** mutes or unmutes (remembered). **Steps** shows the whole list.
+   **Re-center** appears after you pan the map. **End ride** goes back to
+   the overview.
+
+Phone, on the synthetic test network the browser tests use (so the
+street names don't match the basemap): empty state, tapping the map,
+a route, and ride mode.
+
+<p>
+  <img src="docs/ux/phone-1-empty.png" width="190" alt="Empty state: the Start row is highlighted, with a prominent Use my location button">
+  <img src="docs/ux/phone-2-pick-popup.png" width="190" alt="Tapping the map opens a popup with Start here and Go here">
+  <img src="docs/ux/phone-3-route.png" width="190" alt="With a route shown, the bottom sheet collapses to the summary, Start ride and Steps">
+  <img src="docs/ux/phone-4-ride.png" width="190" alt="Ride mode: next-turn banner with distance countdown, heading-up map, Voice / Steps / End ride bar">
+</p>
+
+Desktop (1280×800):
+[empty](docs/ux/desktop-1-empty.png) ·
+[map-click popup](docs/ux/desktop-2-pick-popup.png) ·
+[route](docs/ux/desktop-3-route.png) ·
+[ride mode](docs/ux/desktop-4-ride.png)
 
 ## Why this
 
@@ -112,7 +173,8 @@ chargers, blue lockers, violet racks) when zoomed in.
 3. **API** (FastAPI) serves the static files plus `/api/route` (takes a
    `vehicle` type; blocks non-street-legal ones), `/api/vehicles` (the
    vehicle types + default, straight from config), `/api/search` (unified
-   addresses + places/POIs + charging stations, ranked), `/api/geocode`, and
+   addresses + places/POIs + charging stations, ranked), `/api/reverse`
+   (nearest-address label for a map-picked point), `/api/geocode`, and
    `/api/stations`.
 
 4. **UI** is a dependency-free vanilla-JS + MapLibre GL single page,
@@ -121,11 +183,15 @@ chargers, blue lockers, violet racks) when zoomed in.
    zoomed in), a vehicle type dropdown (options + description loaded from
    `/api/vehicles`) with a live description line, a unified search that
    accepts any address, business, or POI for either start or destination
-   (plus click-anywhere and GPS), and a turn-by-turn panel where each step can
-   be highlighted on the map. On touch devices, starting a route enters a
-   navigation mode: the panel tucks away behind a cancel button, POIs
-   declutter, the screen stays awake, a live location dot tracks you, and the
-   map rotates heading-up.
+   (plus tap-the-map "Start here / Go here", draggable pins, and GPS), and a
+   turn-by-turn panel where each step can be highlighted on the map.
+   **Ride mode** (Start ride) is hands-free: GPS fixes are snapped to the
+   route, the next-maneuver banner and voice prompts advance on their own,
+   leaving the route for a few fixes reroutes from where you are, and the map
+   follows you heading-up (GPS course when moving, compass otherwise) with
+   the screen kept awake. The progress logic is plain functions in `app.js`
+   (`snapToRoute`, `nextManeuver`, `offRouteCount`, …) with browser tests
+   that replay a scripted GPS track.
 
 ## Run it
 
@@ -137,7 +203,7 @@ uvicorn pev_buddy.api:app --reload
 # open http://localhost:8000
 ```
 
-Tests: `pytest` (103 tests). The Python suite is offline/synthetic (no S3
+Tests: `pytest`. The Python suite is offline/synthetic (no S3
 calls); `tests/test_frontend.py` drives the real UI in headless Chrome via
 Playwright (system Chrome, `channel="chrome"` — no browser download) and
 skips automatically when Chrome is unavailable. CI runs the suite on every
