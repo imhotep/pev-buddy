@@ -51,6 +51,7 @@ chargers, blue lockers, violet racks) when zoomed in.
    | file | source | notes |
    |---|---|---|
    | `roads.geojson` | Overture `transportation/segment` | roads only, trimmed to routing-relevant fields |
+   | `roads.display.geojson` | derived from `roads.geojson` | what the browser map downloads: `class` + geometry only, no ids, 5-decimal coords; rebuild without a full sync via `python -m pev_buddy.display_roads` |
    | `connectors.json` | Overture `transportation/connector` | junction nodes |
    | `stations.geojson` | Overture `place` (`basic_category: ev_charging_station`) | 40 SF chargers |
    | `places.json` | Overture `place` (all other named places) | ~81k businesses/POIs for place search |
