@@ -98,7 +98,7 @@ const fmtMin = (s) => `${Math.max(1, Math.round(s / 60))} min`;
 map.on("load", async () => {
   let roads, pois;
   try {
-    roads = await (await fetch("/data/roads.geojson")).json();
+    roads = await fetchRoads();
     const stations = await (await fetch("/data/stations.geojson")).json();
     // BikeLink lockers and SFMTA racks are optional slices — a missing file
     // just means fewer pins.
@@ -252,6 +252,16 @@ map.on("load", async () => {
   const loading = document.getElementById("map-loading");
   if (loading) loading.remove();
 });
+
+// The map only draws road class + geometry, so it loads the slim display file
+// (built by sync / `python -m pev_buddy.display_roads`). If it isn't there yet
+// (e.g. code deployed before the file was generated), fall back to the full
+// routing extract so the map still renders.
+async function fetchRoads() {
+  const res = await fetch("/data/roads.display.geojson");
+  if (res.ok) return await res.json();
+  return await (await fetch("/data/roads.geojson")).json();
+}
 
 async function fetchFC(url) {
   const res = await fetch(url);

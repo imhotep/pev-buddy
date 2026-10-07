@@ -206,3 +206,44 @@ def test_welcome_modal_first_visit_and_opt_out(browser, live_server):
     assert not pg.is_visible("#welcome-modal")
     pg.close()
     ctx.close()
+
+
+def _load_map_recording_data_requests(browser, live_server, setup=None):
+    pg = browser.new_page(viewport={"width": 1280, "height": 800})
+    pg.add_init_script("localStorage.setItem('pev-welcome-dismissed', '1')")
+    seen = []
+    pg.on("response", lambda r: "/data/roads" in r.url and seen.append((r.url.split("/data/", 1)[1], r.status)))
+    if setup:
+        setup(pg)
+    pg.goto(f"{live_server}/", wait_until="networkidle")
+    pg.wait_for_selector("#map-loading", state="detached", timeout=20000)
+    n = pg.evaluate("() => map.getSource('pev-roads')._data.features.length")
+    pg.close()
+    return seen, n
+
+
+def test_map_prefers_display_roads_and_falls_back(browser, live_server):
+    import orjson
+
+    from conftest import road_features
+    from pev_buddy.display_roads import build_display_roads
+
+    # The synthetic bundle has no display file: the server 404s it and the
+    # map falls back to the full extract, still drawing every road.
+    seen, n = _load_map_recording_data_requests(browser, live_server)
+    assert ("roads.display.geojson", 404) in seen
+    assert ("roads.geojson", 200) in seen
+    assert n == len(road_features())
+
+    # With a display file available, the full extract is never requested.
+    body = orjson.dumps(build_display_roads({"type": "FeatureCollection", "features": road_features()}))
+
+    def serve_display(pg):
+        pg.route(
+            "**/data/roads.display.geojson",
+            lambda route: route.fulfill(status=200, body=body, content_type="application/geo+json"),
+        )
+
+    seen, n = _load_map_recording_data_requests(browser, live_server, serve_display)
+    assert all(name != "roads.geojson" for name, _ in seen), seen
+    assert n == len(road_features())

@@ -34,6 +34,24 @@ def _write_graph_bundle(out_dir: Path) -> None:
     click.echo(f"bundle: graph.npz + graph_meta.json ({g.node_count} nodes, {g.edge_count} edges)")
 
 
+def _write_display_roads(out_dir: Path) -> None:
+    """Write the display-only roads.display.geojson the browser map downloads."""
+    from .display_roads import DISPLAY_NAME, SOURCE_NAME, write_display_roads
+
+    roads_p = out_dir / SOURCE_NAME
+    if not roads_p.exists():
+        return
+    try:
+        s = write_display_roads(roads_p, out_dir / DISPLAY_NAME)
+    except Exception as e:  # the map falls back to roads.geojson; never fail sync
+        click.echo(f"display roads: failed ({e}); frontend will fall back to roads.geojson", err=True)
+        return
+    click.echo(
+        f"display roads: {DISPLAY_NAME} ({s['features_out']} features, "
+        f"{s['src_bytes'] / 1e6:.1f} MB -> {s['dst_bytes'] / 1e6:.1f} MB)"
+    )
+
+
 def _write_addresses_bundle(out_dir: Path) -> None:
     """Convert addresses.parquet to the packed addresses.npz + _meta.json bundle."""
     import numpy as np
@@ -72,6 +90,8 @@ def sync(bbox: str | None, release: str | None, out_dir: str | None, skip: str):
     out_dir_p = Path(out_dir) if out_dir else config.DATA_DIR
     if "roads" not in skip_set and "connectors" not in skip_set:
         _write_graph_bundle(out_dir_p)
+    if "roads" not in skip_set:
+        _write_display_roads(out_dir_p)
     if "addresses" not in skip_set:
         _write_addresses_bundle(out_dir_p)
     if "bikelink" not in skip_set:

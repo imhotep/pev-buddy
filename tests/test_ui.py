@@ -153,3 +153,20 @@ def test_poi_layers_clustered_with_distinct_kind_colors():
     assert len(set(colors.values())) == 3, "each POI kind needs its own pin color"
     # Clicking a locker must be able to open its bubble.
     assert "showBikeLinkPopup" in js
+
+
+def test_map_loads_display_roads_with_fallback():
+    # The map draws road class + geometry only, so it must fetch the slim
+    # display layer, falling back to the full extract if it 404s.
+    js = _text("app.js")
+    body = js.split("async function fetchRoads()", 1)[1].split("\n}", 1)[0]
+    display = body.find('"/data/roads.display.geojson"')
+    ok_check = body.find("res.ok")
+    fallback = body.find('"/data/roads.geojson"')
+    assert 0 <= display < ok_check < fallback, "fetchRoads must try display first, then fall back"
+    assert "roads = await fetchRoads()" in js
+    # the full routing extract is fetched only inside the fallback
+    assert js.count('"/data/roads.geojson"') == 1
+    # the road style reads class and nothing else from road features
+    roads_layer = js.split('id: "pev-roads"', 1)[1].split("map.addSource", 1)[0]
+    assert set(re.findall(r'\["get", "([^"]+)"\]', roads_layer)) == {"class"}

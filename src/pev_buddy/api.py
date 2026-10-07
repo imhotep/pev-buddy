@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import gc
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import orjson
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -362,6 +363,36 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             raise HTTPException(404, f"{name} not available")
         # streamed from disk — read_bytes() would spike tens of MB per request
         return FileResponse(p, media_type="application/geo+json")
+
+    # The display-only road layer (class + geometry; see display_roads.py) is
+    # the one big file every launch downloads. It only changes when data is
+    # re-synced, so let the browser HTTP cache keep it for a day and then
+    # revalidate cheaply via ETag (304, no body). The service worker still
+    # leaves /data/ to the network layer, so this header is what applies.
+    DISPLAY_CACHE_CONTROL = "public, max-age=86400"
+
+    @app.get("/data/roads.display.geojson", include_in_schema=False)
+    def roads_display_geojson(request: Request) -> Response:
+        p = data_dir / "roads.display.geojson"
+        if not p.exists():
+            # 404 tells the frontend to fall back to roads.geojson
+            raise HTTPException(404, "roads.display.geojson not available")
+        resp = FileResponse(
+            p,
+            media_type="application/geo+json",
+            stat_result=os.stat(p),  # computes ETag/Last-Modified up front
+            headers={"Cache-Control": DISPLAY_CACHE_CONTROL},
+        )
+        inm = request.headers.get("if-none-match")
+        if inm:
+            etag = resp.headers["etag"]
+            tags = [t.strip().removeprefix("W/") for t in inm.split(",")]
+            if inm.strip() == "*" or etag in tags:
+                return Response(
+                    status_code=304,
+                    headers={"ETag": etag, "Cache-Control": DISPLAY_CACHE_CONTROL},
+                )
+        return resp
 
     @app.get("/data/roads.geojson", include_in_schema=False)
     def roads_geojson() -> Response:
