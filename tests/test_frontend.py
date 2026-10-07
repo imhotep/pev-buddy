@@ -556,6 +556,47 @@ def test_ride_voice_mute_is_remembered(ride_page):
     assert page.evaluate("() => __spoken") == []
 
 
+def rect(page, selector):
+    return page.eval_on_selector(selector, "el => el.getBoundingClientRect().toJSON()")
+
+
+def test_phone_layout_keeps_map_visible_and_targets_tappable(open_app):
+    page = open_app(390, 844, init_scripts=[GEO_AND_SPEECH_MOCK])
+    route_via_ui(page)
+    # With a route up, the sheet collapses to summary + actions: most of the
+    # screen is map, and the steps drawer stays closed.
+    assert page.evaluate("() => document.body.classList.contains('sheet-collapsed')")
+    assert rect(page, "#sidebar")["height"] < 844 * 0.35
+    assert not page.is_visible("#steps-drawer")
+    for sel in ("#start-ride", "#show-steps", "#sheet-toggle"):
+        assert page.is_visible(sel)
+        assert rect(page, sel)["height"] >= 44, f"{sel} is under 44px"
+    # MapLibre's attribution sits above the sheet, not under it.
+    assert rect(page, ".maplibregl-ctrl-bottom-right")["bottom"] <= rect(page, "#sidebar")["top"] + 1
+
+    # "Edit trip" brings the full trip panel back, with 44px controls.
+    page.click("#sheet-toggle")
+    assert page.is_visible("#reset-route") and page.is_visible("#search")
+    for sel in ("#reset-route", "#use-location", "#search", "#vehicle"):
+        assert rect(page, sel)["height"] >= 44, f"{sel} is under 44px"
+    page.click("#sheet-toggle")
+
+    # Ride mode: full-screen map; banner and controls clear of MapLibre's.
+    page.click("#start-ride")
+    page.wait_for_timeout(100)  # let ResizeObserver publish the overlay edges
+    assert not page.is_visible("#sidebar")
+    banner_box = rect(page, "#ride-banner")
+    controls_box = rect(page, "#ride-controls")
+    assert rect(page, ".maplibregl-ctrl-top-right")["top"] >= banner_box["bottom"]
+    assert rect(page, ".maplibregl-ctrl-bottom-right")["bottom"] <= controls_box["top"] + 1
+    for sel in ("#ride-mute", "#ride-steps", "#end-ride"):
+        assert rect(page, sel)["height"] >= 44
+    # The steps overview opens between the two without covering either.
+    page.click("#ride-steps")
+    drawer = rect(page, "#steps-drawer")
+    assert drawer["top"] >= banner_box["bottom"] and drawer["bottom"] <= controls_box["top"]
+
+
 def test_use_my_location_reports_failures_in_page(page):
     page.evaluate(
         "() => { navigator.geolocation.getCurrentPosition = (ok, fail) => setTimeout(() => fail({ code: 1 }), 50); }"

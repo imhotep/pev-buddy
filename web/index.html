@@ -19,6 +19,8 @@
 </head>
 <body>
   <aside id="sidebar">
+    <!-- Phones only: collapses/expands the bottom sheet once a route is up -->
+    <button id="sheet-toggle" class="sheet-toggle hidden" aria-expanded="true">Show map</button>
     <header>
       <h1>PEV Buddy</h1>
       <p class="tagline">Turn-by-turn navigation for e-bikes, e-scooters &amp; mopeds in San Francisco — with chargers, lockers &amp; racks on the map.</p>
@@ -55,6 +57,7 @@
       <div id="route-summary" class="hidden" aria-live="polite"></div>
       <div id="route-actions" class="route-actions hidden">
         <button id="start-ride" class="primary"><span aria-hidden="true">▶</span> Start ride</button>
+        <button id="show-steps" class="secondary" aria-expanded="false" aria-controls="steps-drawer">Steps</button>
       </div>
     </section>
 
@@ -106,7 +109,6 @@
     <button id="ride-recenter" class="hidden">Re-center</button>
     <button id="end-ride" class="end">End ride</button>
   </div>
-  <button id="show-steps" class="hidden" aria-expanded="false" aria-controls="steps-drawer">Show steps</button>
   <div id="steps-drawer" class="hidden" role="region" aria-labelledby="steps-title">
     <div class="steps-head">
       <button id="steps-close">Hide steps</button>

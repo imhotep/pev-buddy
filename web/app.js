@@ -538,12 +538,9 @@ function resetTrip() {
 }
 document.getElementById("reset-route").addEventListener("click", resetTrip);
 
-// While a route is on the map but the steps drawer is hidden, offer a way
-// back to the steps.
+// "Steps" (route actions) and the ride bar's "Steps" both toggle the drawer.
 function syncStepsToggle() {
   const drawerHidden = document.getElementById("steps-drawer").classList.contains("hidden");
-  document.getElementById("show-steps").classList.toggle("hidden", !(state.routeShown && drawerHidden));
-  // "Show steps" and the ride bar's "Steps" both control the drawer.
   for (const toggle of document.querySelectorAll('[aria-controls="steps-drawer"]')) {
     toggle.setAttribute("aria-expanded", String(!drawerHidden));
   }
@@ -565,7 +562,11 @@ function closeStepsDrawer(moveFocus) {
   if (moveFocus && toggle) toggle.focus();
 }
 
-document.getElementById("show-steps").addEventListener("click", () => openStepsDrawer(true));
+function toggleStepsDrawer() {
+  if (document.getElementById("steps-drawer").classList.contains("hidden")) openStepsDrawer(true);
+  else closeStepsDrawer(true);
+}
+document.getElementById("show-steps").addEventListener("click", toggleStepsDrawer);
 
 // In-page status line under the trip rows (replaces blocking alerts).
 function showTripStatus(text, isError = false) {
@@ -799,10 +800,26 @@ document.addEventListener("gesturestart", (e) => {
 // POI pins and count bubbles step aside so the route reads clearly.
 function syncNavUI() {
   document.getElementById("route-actions").classList.toggle("hidden", !state.routeShown);
+  document.getElementById("sheet-toggle").classList.toggle("hidden", !state.routeShown);
+  if (!state.routeShown) setSheetCollapsed(false);
   for (const id of ["pev-pois", "pev-clusters", "pev-cluster-count"]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", state.routeShown ? "none" : "visible");
   }
 }
+
+// Phone bottom sheet: with a route up it collapses to the route summary and
+// actions so the map stays visible; "Edit trip" expands it again. (The
+// collapsed layout is a max-width rule in style.css; desktop ignores it.)
+function setSheetCollapsed(collapsed) {
+  document.body.classList.toggle("sheet-collapsed", collapsed);
+  const toggle = document.getElementById("sheet-toggle");
+  toggle.textContent = collapsed ? "▴ Edit trip" : "▾ Show map";
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+}
+document.getElementById("sheet-toggle").addEventListener("click", () => {
+  setSheetCollapsed(!document.body.classList.contains("sheet-collapsed"));
+  if (state.route) fitToPath(state.route.path, { duration: REDUCED_MOTION ? 0 : 400 });
+});
 
 // Compass access. iOS 13+ only grants it from a user gesture, so this runs
 // from the "Start ride" tap. Touch devices only: a laptop has no compass
@@ -1307,13 +1324,11 @@ function exposeOverlayEdge(id, cssVar, edge) {
 }
 exposeOverlayEdge("ride-banner", "--ride-banner-edge", "top");
 exposeOverlayEdge("ride-controls", "--ride-controls-edge", "bottom");
+exposeOverlayEdge("sidebar", "--sheet-edge", "bottom"); // used by the phone layout only
 
 document.getElementById("start-ride").addEventListener("click", startRide);
 document.getElementById("end-ride").addEventListener("click", endRide);
-document.getElementById("ride-steps").addEventListener("click", () => {
-  if (document.getElementById("steps-drawer").classList.contains("hidden")) openStepsDrawer(true);
-  else closeStepsDrawer(true);
-});
+document.getElementById("ride-steps").addEventListener("click", toggleStepsDrawer);
 document.getElementById("ride-recenter").addEventListener("click", () => {
   ride.followPausedUntil = 0;
   followRider();
@@ -1406,7 +1421,7 @@ function renderRoute(data) {
 
   const summary = document.getElementById("route-summary");
   let html = `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)} · ${data.steps.length} steps<br>`;
-  html += `<span style="color:var(--muted)">From ${escapeHtml(data.start_label || "start")} to ${escapeHtml(data.end_label || "destination")}</span>`;
+  html += `<span class="route-from">From ${escapeHtml(data.start_label || "start")} to ${escapeHtml(data.end_label || "destination")}</span>`;
   for (const w of data.warnings || []) html += `<div class="warn">⚠ ${escapeHtml(w)}</div>`;
   summary.innerHTML = html;
 
@@ -1457,7 +1472,9 @@ function renderRoute(data) {
     setRideStatus("");
     return;
   }
-  // On a phone the drawer would cover most of the map; it is one tap away.
+  // On a phone the sheet shrinks to the summary and the drawer stays shut —
+  // both would cover most of the map; steps are one tap away.
+  setSheetCollapsed(true);
   if (!SMALL_SCREEN.matches) openStepsDrawer(false);
   // Fit after the drawer opens so the padding accounts for it.
   fitToPath(data.path, { duration: REDUCED_MOTION ? 0 : 600 });
