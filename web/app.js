@@ -49,7 +49,6 @@ map.getCanvas().setAttribute(
 const state = {
   startRef: null, // {kind, station_id?, query?, lat, lon, label}
   endRef: null,
-  routing: false,
   routeShown: false, // a route is currently drawn on the map
   activeStep: null, // index of the step highlighted on the map
   vehicle: "scooter", // CA vehicle type id (from /api/vehicles)
@@ -90,7 +89,14 @@ document.getElementById("vehicle").addEventListener("change", (e) => {
 });
 loadVehicleTypes();
 
-const fmtMi = (m) => `${(m / 1609.34).toFixed(1)} mi`;
+// Imperial everywhere (matches the API's warning text, geo.format_distance):
+// feet under a tenth of a mile, so a short step never reads "0.0 mi".
+const M_PER_MILE = 1609.344;
+const FT_PER_M = 3.28084;
+function fmtDist(m) {
+  if (m < 0.1 * M_PER_MILE) return `${Math.round((m * FT_PER_M) / 10) * 10} ft`;
+  return `${(m / M_PER_MILE).toFixed(1)} mi`;
+}
 const fmtMin = (s) => `${Math.max(1, Math.round(s / 60))} min`;
 
 // ---------------------------------------------------------------- map layers
@@ -457,6 +463,7 @@ function maybeRoute() {
 // Clear everything: start/end, markers, route line, step highlight, and the
 // steps drawer.
 function resetTrip() {
+  cancelRouting();
   state.startRef = null;
   state.endRef = null;
   state.routeShown = false;
@@ -465,6 +472,7 @@ function resetTrip() {
   endMarker.remove();
   document.getElementById("start-label").textContent = DEFAULT_START_LABEL;
   document.getElementById("end-label").textContent = DEFAULT_END_LABEL;
+  showTripStatus("");
   if (map.getSource("pev-route")) map.getSource("pev-route").setData(emptyFC());
   if (map.getSource("pev-route-casing")) map.getSource("pev-route-casing").setData(emptyFC());
   clearStepHighlight();
@@ -503,18 +511,57 @@ function closeStepsDrawer(moveFocus) {
 
 document.getElementById("show-steps").addEventListener("click", () => openStepsDrawer(true));
 
+// In-page status line under the trip rows (replaces blocking alerts).
+function showTripStatus(text, isError = false) {
+  const el = document.getElementById("trip-status");
+  el.textContent = text;
+  el.classList.toggle("error", isError);
+  el.classList.toggle("hidden", !text);
+}
+
+const LOCATION_ERRORS = {
+  1: "Location permission is off for this site. Allow it in your browser's site settings, or search / tap the map instead.",
+  2: "Your position isn't available right now. Check that Location Services are on, or search / tap the map instead.",
+  3: "Timed out finding your location. Try again, or search / tap the map instead.",
+};
+
+// Fill the start or destination with the device position, reporting every
+// outcome in the page: in progress, success, and each failure mode.
 function useMyLocation(which) {
-  if (!navigator.geolocation) return alert("Geolocation is not available in this browser.");
+  if (!window.isSecureContext) {
+    return showTripStatus("Location needs a secure (https) connection. Search or tap the map instead.", true);
+  }
+  if (!navigator.geolocation) {
+    return showTripStatus("This browser can't share your location. Search or tap the map instead.", true);
+  }
+  const button = document.getElementById(which === "end" ? "use-location-end" : "use-location");
+  button.disabled = true;
+  showTripStatus("Finding your location…");
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      const ref = { kind: "coords", lat: pos.coords.latitude, lon: pos.coords.longitude, label: "My location" };
+      button.disabled = false;
+      const { latitude: lat, longitude: lon } = pos.coords;
+      if (!inSF(lon, lat)) {
+        showTripStatus("You appear to be outside San Francisco. PEV Buddy only routes within the city.", true);
+        return;
+      }
+      showTripStatus("");
+      const ref = { kind: "coords", lat, lon, label: "My location" };
       if (which === "end") setEnd(ref);
       else setStart(ref);
-      map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 14, ...FLY });
+      map.flyTo({ center: [lon, lat], zoom: 14, ...FLY });
     },
-    () => alert("Could not get your location."),
-    { enableHighAccuracy: true, timeout: 8000 }
+    (err) => {
+      button.disabled = false;
+      showTripStatus(LOCATION_ERRORS[err.code] || "Could not get your location. Search or tap the map instead.", true);
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
   );
+}
+
+function inSF(lon, lat) {
+  const [[w, s], [e, n]] = SF_BOUNDS;
+  return lon >= w && lon <= e && lat >= s && lat <= n;
 }
 document.getElementById("use-location").addEventListener("click", () => useMyLocation("start"));
 document.getElementById("use-location-end").addEventListener("click", () => useMyLocation("end"));
@@ -572,8 +619,10 @@ async function runSearch(q) {
       div.className = "result";
       const label = document.createElement("span");
       label.textContent = r.text;
+      // "Category · address" so same-named places (eight "Ferry Building…"
+      // hits) can be told apart.
       const sub = document.createElement("small");
-      sub.textContent = r.category || "Place";
+      sub.textContent = [r.category || "Place", r.address].filter(Boolean).join(" · ");
       div.append(label, sub);
       const row = document.createElement("div");
       row.style.cssText = "display:flex;gap:6px;margin-top:6px;";
@@ -593,6 +642,9 @@ async function runSearch(q) {
           if (kind === "start") setStart(ref);
           else setEnd(ref);
           map.flyTo({ center: [r.lon, r.lat], zoom: 15, ...FLY });
+          // The pick now lives in the Start/Destination row; clear the box so
+          // it is ready for the next search.
+          searchInput.value = "";
           hideSearchResults();
         });
         row.appendChild(b);
@@ -767,11 +819,21 @@ document.addEventListener("visibilitychange", () => {
 
 // ---------------------------------------------------------------- routing
 
+// The in-flight /api/route request, if any. Only the latest request may
+// render: a new one aborts its predecessor and Reset aborts it outright, so a
+// slow response for an old start/destination/vehicle can never paint a stale
+// route over the current trip.
+let routeRequest = null;
+
+function cancelRouting() {
+  if (routeRequest) routeRequest.abort();
+  routeRequest = null;
+}
+
 async function computeRoute() {
-  if (state.routing) return;
-  state.routing = true;
-  const btns = document.querySelectorAll(".bubble-route");
-  btns.forEach((b) => (b.disabled = true));
+  cancelRouting();
+  const request = new AbortController();
+  routeRequest = request;
   const summary = document.getElementById("route-summary");
   summary.classList.remove("hidden");
   summary.textContent = "Finding your route…";
@@ -786,19 +848,20 @@ async function computeRoute() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: request.signal,
     });
     const data = await res.json();
+    if (request !== routeRequest) return; // superseded while the body streamed in
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    if (!state.startRef || !state.endRef) return; // trip was reset mid-request
     renderRoute(data);
   } catch (err) {
+    if (err.name === "AbortError" || request !== routeRequest) return;
     state.routeShown = false;
     syncNavUI();
     summary.innerHTML = `<span class="warn">⚠ ${escapeHtml(err.message)}</span>`;
     closeStepsDrawer(false);
   } finally {
-    state.routing = false;
-    btns.forEach((b) => (b.disabled = false));
+    if (request === routeRequest) routeRequest = null;
   }
 }
 
@@ -826,14 +889,9 @@ function renderRoute(data) {
   };
   map.getSource("pev-route").setData({ type: "FeatureCollection", features: [fc] });
   map.getSource("pev-route-casing").setData({ type: "FeatureCollection", features: [fc] });
-  if (data.path.length) {
-    const b = map.getBounds();
-    for (const [lon, lat] of data.path) b.extend([lon, lat]);
-    map.fitBounds(b, { padding: { top: 60, bottom: 60, left: 380, right: 60 }, duration: REDUCED_MOTION ? 0 : 600 });
-  }
 
   const summary = document.getElementById("route-summary");
-  let html = `<b>${fmtMi(data.distance_m)}</b> · ${fmtMin(data.duration_s)} · ${data.steps.length} steps<br>`;
+  let html = `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)} · ${data.steps.length} steps<br>`;
   html += `<span style="color:var(--muted)">From ${escapeHtml(data.start_label || "start")} to ${escapeHtml(data.end_label || "destination")}</span>`;
   for (const w of data.warnings || []) html += `<div class="warn">⚠ ${escapeHtml(w)}</div>`;
   summary.innerHTML = html;
@@ -862,7 +920,8 @@ function renderRoute(data) {
     }
     const dist = document.createElement("span");
     dist.className = "dist";
-    dist.textContent = s.maneuver === "depart" || s.maneuver === "arrive" ? "" : fmtMi(s.distance_m);
+    // Depart/arrive and zero-length legs show no distance rather than "0 ft".
+    dist.textContent = s.maneuver === "depart" || s.maneuver === "arrive" || !s.distance_m ? "" : fmtDist(s.distance_m);
     li.append(idx, txt, dist);
     li.addEventListener("click", () => selectStep(li, s));
     li.tabIndex = 0;
@@ -878,6 +937,56 @@ function renderRoute(data) {
   }
   document.getElementById("steps-title").textContent = "Turn-by-turn";
   openStepsDrawer(false);
+  // Fit after the drawer opens so the padding accounts for it.
+  fitToPath(data.path, { duration: REDUCED_MOTION ? 0 : 600 });
+}
+
+// Zoom the camera to a [lon, lat] polyline. Bounds come from the path alone —
+// extending the current view would mean never zooming in — and the padding
+// keeps it clear of whatever UI currently covers the map.
+function fitToPath(path, options = {}) {
+  if (!path || !path.length) return;
+  const bounds = new maplibregl.LngLatBounds(path[0], path[0]);
+  for (const c of path) bounds.extend(c);
+  map.fitBounds(bounds, { padding: mapPadding(), ...options });
+}
+
+// Padding (px) that keeps fitted content clear of the panels overlaying the
+// map (the bottom sheet on phones, the steps drawer). Each overlay pads the
+// edge it hugs, measured from the live layout so it is right at any viewport
+// size (a fixed 380px left inset is wider than a phone).
+const MAP_OVERLAYS = ["sidebar", "steps-drawer"];
+function mapPadding(gap = 40) {
+  const m = map.getContainer().getBoundingClientRect();
+  const pad = { top: gap, right: gap, bottom: gap, left: gap };
+  for (const id of MAP_OVERLAYS) {
+    const el = document.getElementById(id);
+    if (!el || !el.getClientRects().length) continue; // not rendered
+    const r = el.getBoundingClientRect();
+    const w = Math.min(r.right, m.right) - Math.max(r.left, m.left);
+    const h = Math.min(r.bottom, m.bottom) - Math.max(r.top, m.top);
+    if (w <= 0 || h <= 0) continue; // beside the map, not over it (desktop sidebar)
+    if (w > m.width / 2) {
+      // Spans the map's width: a top banner or a bottom sheet.
+      if (r.top - m.top < m.bottom - r.bottom) pad.top = Math.max(pad.top, r.bottom - m.top + gap);
+      else pad.bottom = Math.max(pad.bottom, m.bottom - r.top + gap);
+    } else if (r.left - m.left < m.right - r.right) {
+      pad.left = Math.max(pad.left, r.right - m.left + gap);
+    } else {
+      pad.right = Math.max(pad.right, m.right - r.left + gap);
+    }
+  }
+  // Padding must leave some map to fit into: shrink proportionally if the
+  // overlays leave less than 80px on an axis.
+  for (const [a, b, size] of [["left", "right", m.width], ["top", "bottom", m.height]]) {
+    const room = size - 80;
+    if (pad[a] + pad[b] > room) {
+      const k = room / (pad[a] + pad[b]);
+      pad[a] = Math.floor(pad[a] * k);
+      pad[b] = Math.floor(pad[b] * k);
+    }
+  }
+  return pad;
 }
 
 // ---------------------------------------------------------------- step highlight
@@ -917,9 +1026,7 @@ function selectStep(li, step) {
   map.getSource("pev-step-dot").setData({ type: "FeatureCollection", features: dots });
 
   if (step.geometry && step.geometry.length > 1) {
-    const b = map.getBounds();
-    for (const c of step.geometry) b.extend(c);
-    map.fitBounds(b, { padding: { top: 80, bottom: 80, left: 380, right: 340 }, maxZoom: 17, duration: REDUCED_MOTION ? 0 : 500 });
+    fitToPath(step.geometry, { maxZoom: 17, duration: REDUCED_MOTION ? 0 : 500 });
   } else if (step.turn_point) {
     map.flyTo({ center: step.turn_point, zoom: 16, duration: REDUCED_MOTION ? 0 : 500 });
   }

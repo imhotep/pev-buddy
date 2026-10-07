@@ -206,3 +206,82 @@ def test_welcome_modal_first_visit_and_opt_out(browser, live_server):
     assert not pg.is_visible("#welcome-modal")
     pg.close()
     ctx.close()
+
+
+def set_trip(page, end=(200, -100), end_label="Test end"):
+    """Set start (node A) and a destination without waiting for the route."""
+    alon, alat = m_to_lonlat(0, 0)
+    elon, elat = m_to_lonlat(*end)
+    page.evaluate(
+        f"""() => {{
+          setStart({{ kind: 'coords', lat: {alat}, lon: {alon}, label: 'Test start' }});
+          setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: '{end_label}' }});
+        }}"""
+    )
+
+
+def test_newer_route_request_wins_over_slow_older_one(page):
+    # Hold the first /api/route response back so the second request finishes
+    # first: the stale response must be dropped, not painted over the trip.
+    page.evaluate(
+        """() => {
+          const realFetch = window.fetch;
+          let calls = 0;
+          window.fetch = (url, opts) => {
+            if (String(url).includes('/api/route') && calls++ === 0) {
+              return new Promise((r) => setTimeout(r, 800)).then(() => realFetch(url, opts));
+            }
+            return realFetch(url, opts);
+          };
+        }"""
+    )
+    set_trip(page, end_label="First end")
+    set_trip(page, end=(200, 0), end_label="Second end")
+    page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0")
+    page.wait_for_timeout(1200)  # well past the delayed first response
+    summary = page.text_content("#route-summary")
+    assert "Second end" in summary and "First end" not in summary
+
+
+def test_reset_aborts_in_flight_route_and_clears_markers(page):
+    set_trip(page)
+    page.click("#reset-route")
+    page.wait_for_timeout(800)  # the aborted response would have landed by now
+    assert page.eval_on_selector("#route-summary", "el => el.classList.contains('hidden')")
+    assert page.evaluate("() => map.querySourceFeatures('pev-route').length") == 0
+    assert page.evaluate("() => document.querySelectorAll('.maplibregl-marker').length") == 0
+    assert page.text_content("#start-label").startswith("Not set")
+    assert page.text_content("#end-label").startswith("Not set")
+
+
+def test_route_fit_zooms_in_and_padding_fits_a_phone(page):
+    zoom_before = page.evaluate("() => map.getZoom()")
+    route_via_ui(page)
+    # Bounds come from the route alone, so a short route zooms right in.
+    page.wait_for_function(f"() => !map.isMoving() && map.getZoom() > {zoom_before + 1}")
+    # At phone width the padding still leaves map to fit into (the old
+    # hard-coded left: 380 alone was wider than the screen).
+    page.set_viewport_size({"width": 390, "height": 844})
+    pad = page.evaluate("() => mapPadding()")
+    assert pad["left"] + pad["right"] < 390 - 40
+    assert pad["top"] + pad["bottom"] < 844 - 40
+
+
+def test_search_result_subtitle_and_clear_after_pick(page):
+    page.fill("#search", "bakery")
+    page.wait_for_selector("#search-results:not(.hidden)")
+    assert page.text_content("#search-results .result small") == "Restaurant · 12 Test Way"
+    page.click("#search-results .result button:has-text('Start')")
+    assert page.text_content("#start-label") == "Test Bakery"
+    assert page.input_value("#search") == ""
+    assert page.eval_on_selector("#search-results", "el => el.classList.contains('hidden')")
+
+
+def test_use_my_location_reports_failures_in_page(page):
+    page.evaluate(
+        "() => { navigator.geolocation.getCurrentPosition = (ok, fail) => setTimeout(() => fail({ code: 1 }), 50); }"
+    )
+    page.click("#use-location")
+    page.wait_for_function("() => document.getElementById('trip-status').textContent.includes('permission')")
+    assert page.eval_on_selector("#trip-status", "el => el.classList.contains('error')")
+    assert page.text_content("#start-label").startswith("Not set")

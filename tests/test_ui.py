@@ -67,6 +67,19 @@ def test_reset_clears_route_state():
         assert cleared in reset_body, f"resetTrip does not clear {cleared}"
 
 
+def test_route_requests_are_abortable_and_fits_are_layout_aware():
+    js = _text("app.js")
+    route_body = js.split("async function computeRoute()", 1)[1].split("\n}\n", 1)[0]
+    assert "AbortController" in route_body and "signal" in route_body
+    assert "state.routing" not in js, "a new request must supersede, not be dropped"
+    reset_body = js.split("function resetTrip()", 1)[1].split("\n}\n", 1)[0]
+    assert "cancelRouting()" in reset_body
+    # fitBounds never starts from the current view or a phone-overflowing pad.
+    assert "map.getBounds()" not in js
+    assert "left: 380" not in js
+    assert "alert(" not in js, "use in-page feedback, not blocking alerts"
+
+
 def test_cache_bust_versions_match():
     html = _text("index.html")
     css_v = re.search(r"style\.css\?v=(\d+)", html).group(1)

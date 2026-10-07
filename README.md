@@ -230,7 +230,7 @@ measurement-driven verification are mine.
 ## Data & licenses
 
 Map data: [Overture Maps](https://overturemaps.org), released under
-[CDLA-Permissive-2.0](https://opendatacommons.org/licenses/pddl/2.0/), with
+[CDLA-Permissive-2.0](https://cdla.dev/permissive-2-0/), with
 OSM-derived upstream attribution. Basemap tiles: CARTO. BikeLink locker
 locations: [bikelink.org](https://bikelink.org) (© eLOCK Technologies LLC),
 pulled from the public locations page at sync time — the slice is refresh

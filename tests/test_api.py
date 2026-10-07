@@ -1,3 +1,5 @@
+import re
+
 import orjson
 import pytest
 from fastapi.testclient import TestClient
@@ -209,6 +211,24 @@ def test_route_arterial_warning(client):
     body = r.json()
     assert any("arterial" in w for w in body["warnings"])
     assert body["segment_stats"]["arterial"]["max_speed_mph"] == 40
+
+
+def test_route_warnings_use_imperial_units(client):
+    # Every warning flavor (snap, sidewalk, arterial, shared roadway) reports
+    # distance in ft/mi like the rest of the UI — never metres (issue #5).
+    a = m_to_lonlat(0, 0)
+    for dest, vehicle in (((-100, 100), "scooter"), ((300, -100), "scooter"), ((-100, 0), "ebike_c1")):
+        d = m_to_lonlat(*dest)
+        r = client.post(
+            "/api/route",
+            json={"start": {"lon": a[0], "lat": a[1]}, "end": {"lon": d[0], "lat": d[1]}, "vehicle": vehicle},
+        )
+        assert r.status_code == 200, r.text
+        warnings = r.json()["warnings"]
+        assert warnings
+        for w in warnings:
+            assert not re.search(r"\d m\b", w), w
+        assert any(re.search(r"\d (ft|mi)\b", w) for w in warnings)
 
 
 def test_route_unknown_station_is_404(client):
