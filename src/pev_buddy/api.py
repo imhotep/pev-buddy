@@ -327,7 +327,7 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             warnings.append(
                 f"route shares the roadway with car traffic for {shared_m:.0f} m — ride alert"
             )
-        steps = build_steps(graph, result.edge_idxs, elabel)
+        steps = build_steps(graph, result.edge_idxs, elabel, vehicle=vehicle)
         return {
             "path": result.path,
             "distance_m": round(result.distance_m, 1),
