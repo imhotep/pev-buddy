@@ -247,15 +247,77 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 
 .hidden { display: none !important; }
 
-/* While navigating on mobile, the panel tucks away and this is the way out. */
-#cancel-route {
+/* ------------------------------------------------------------ ride mode */
+
+.route-actions { display: flex; gap: 8px; margin-top: 10px; }
+button.primary {
+  flex: 1;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #0c2318;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+}
+button.primary:hover { filter: brightness(1.1); }
+
+#ride-banner,
+#ride-controls { display: none; }
+body.riding #ride-banner { display: block; }
+body.riding #ride-controls { display: flex; }
+
+#ride-banner {
   position: fixed;
-  left: 50%;
-  bottom: max(20px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  z-index: 25;
-  padding: 12px 22px;
-  border-radius: 999px;
+  top: 12px;
+  left: calc(360px + 12px);
+  right: 60px; /* clear of MapLibre's top-right controls */
+  max-width: 560px;
+  z-index: 22;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #14532d;
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.ride-next { display: flex; align-items: center; gap: 14px; }
+.ride-arrow { flex: none; width: 52px; height: 52px; fill: #fff; }
+.ride-arrow path { transform-origin: 24px 24px; transition: transform 0.2s; }
+.ride-arrow .pin { display: none; }
+.ride-arrow[data-maneuver="slight_right"] .arrow { transform: rotate(45deg); }
+.ride-arrow[data-maneuver="right"] .arrow { transform: rotate(90deg); }
+.ride-arrow[data-maneuver="slight_left"] .arrow { transform: rotate(-45deg); }
+.ride-arrow[data-maneuver="left"] .arrow { transform: rotate(-90deg); }
+.ride-arrow[data-maneuver="uturn"] .arrow { transform: rotate(180deg); }
+.ride-arrow[data-maneuver="arrive"] .arrow { display: none; }
+.ride-arrow[data-maneuver="arrive"] .pin { display: inline; }
+.ride-text { min-width: 0; }
+.ride-distance { font-size: 30px; font-weight: 800; line-height: 1.1; }
+.ride-instruction { font-size: 18px; font-weight: 600; line-height: 1.3; margin-top: 2px; }
+.ride-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.ride-status { color: #ffe08a; font-weight: 600; }
+#ride-banner[data-state="arrived"] .ride-meta { display: none; }
+
+#ride-controls {
+  position: fixed;
+  left: calc(360px + 16px);
+  bottom: 16px;
+  z-index: 22;
+  gap: 8px;
+}
+#ride-controls button {
+  min-height: 48px;
+  padding: 10px 16px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
@@ -264,7 +326,38 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
   cursor: pointer;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
-#cancel-route:hover { border-color: var(--route); }
+#ride-controls button:hover { border-color: var(--accent); }
+#ride-mute[aria-pressed="false"] { color: var(--muted); }
+#ride-controls .end { background: #7f1d1d; border-color: #7f1d1d; color: #fff; }
+
+/* While riding, the rider puck replaces MapLibre's location dot/button. */
+body.riding .maplibregl-ctrl-geolocate,
+body.riding .maplibregl-user-location-dot,
+body.riding .maplibregl-user-location-accuracy-circle,
+body.riding #show-steps { display: none; }
+
+.rider-puck {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #4da3ff;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 7px rgba(77, 163, 255, 0.25), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+/* Heading wedge; the marker rotates with the rider's heading. */
+.rider-puck::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -15px;
+  transform: translateX(-50%);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 11px solid #4da3ff;
+}
+
+#steps li.current { background: #2b2a1c; box-shadow: inset 3px 0 0 var(--route); }
 
 /* First-visit intro modal */
 #welcome-modal {
@@ -468,6 +561,7 @@ a:focus-visible,
 
 @media (prefers-reduced-motion: reduce) {
   #map-loading .spinner { animation: none; }
+  .ride-arrow path { transition: none; }
 }
 
 @media (max-width: 760px) {
@@ -477,9 +571,28 @@ a:focus-visible,
   #steps-drawer { width: calc(100% - 32px); }
   #show-steps { top: calc(46vh + 52px); }
 
-  /* Navigation mode: full-screen map, steps toggle up top, drawer lifted
-     clear of the cancel button. */
-  body.navigating #sidebar { display: none; }
-  body.navigating #show-steps { top: 12px; right: 12px; }
-  body.navigating #steps-drawer { bottom: 84px; }
+  /* Ride mode: full-screen map between a top banner and a bottom control
+     bar; MapLibre's corner controls and the steps drawer step clear of both. */
+  body.riding #sidebar { display: none; }
+  #ride-banner {
+    left: 8px;
+    right: 8px;
+    top: max(8px, env(safe-area-inset-top));
+    max-width: none;
+  }
+  .ride-distance { font-size: 26px; }
+  .ride-instruction { font-size: 17px; }
+  #ride-controls {
+    left: 8px;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  #ride-controls button { flex: 1; padding: 10px 8px; }
+  body.riding .maplibregl-ctrl-top-right { top: var(--ride-banner-edge, 0px); }
+  body.riding .maplibregl-ctrl-bottom-right,
+  body.riding .maplibregl-ctrl-bottom-left { bottom: var(--ride-controls-edge, 0px); }
+  body.riding #steps-drawer {
+    bottom: calc(var(--ride-controls-edge, 0px) + 8px);
+    max-height: calc(100% - var(--ride-controls-edge, 0px) - var(--ride-banner-edge, 0px) - 24px);
+  }
 }

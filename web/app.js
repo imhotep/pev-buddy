@@ -5,9 +5,12 @@ const SF_CENTER = [-122.4194, 37.7749];
 // flyTo/fitBounds transitions.
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const FLY = REDUCED_MOTION ? { duration: 0 } : {};
-// Mobile-only navigation aids: live location dot, heading-up map rotation,
-// and a screen wake lock while a route is up. Desktop gets none of these.
+// Touch devices get MapLibre's location button and compass heading-up while
+// riding. Ride mode itself (GPS guidance, voice, wake lock) works anywhere.
 const IS_MOBILE = matchMedia("(pointer: coarse)").matches;
+// Phone-sized layout (the sidebar becomes a bottom sheet) — mirrors the
+// max-width breakpoint in style.css.
+const SMALL_SCREEN = matchMedia("(max-width: 760px)");
 // City of San Francisco extent — the map can't pan or zoom out beyond this.
 const SF_BOUNDS = [
   [-122.52, 37.7],
@@ -51,6 +54,7 @@ const state = {
   endRef: null,
   routeShown: false, // a route is currently drawn on the map
   activeStep: null, // index of the step highlighted on the map
+  route: null, // the last /api/route response on the map
   vehicle: "scooter", // CA vehicle type id (from /api/vehicles)
 };
 
@@ -514,6 +518,8 @@ function maybeRoute() {
 // steps drawer.
 function resetTrip() {
   cancelRouting();
+  state.route = null;
+  endRide();
   state.startRef = null;
   state.endRef = null;
   state.routeShown = false;
@@ -529,9 +535,6 @@ function resetTrip() {
   document.getElementById("steps-drawer").classList.add("hidden");
   syncStepsToggle();
   syncNavUI();
-  // Leaving navigation mode: face north again and let the screen sleep.
-  map.easeTo({ bearing: 0, ...FLY });
-  releaseWakeLock();
 }
 document.getElementById("reset-route").addEventListener("click", resetTrip);
 
@@ -539,9 +542,11 @@ document.getElementById("reset-route").addEventListener("click", resetTrip);
 // back to the steps.
 function syncStepsToggle() {
   const drawerHidden = document.getElementById("steps-drawer").classList.contains("hidden");
-  const toggle = document.getElementById("show-steps");
-  toggle.classList.toggle("hidden", !(state.routeShown && drawerHidden));
-  toggle.setAttribute("aria-expanded", String(!drawerHidden));
+  document.getElementById("show-steps").classList.toggle("hidden", !(state.routeShown && drawerHidden));
+  // "Show steps" and the ride bar's "Steps" both control the drawer.
+  for (const toggle of document.querySelectorAll('[aria-controls="steps-drawer"]')) {
+    toggle.setAttribute("aria-expanded", String(!drawerHidden));
+  }
 }
 
 function openStepsDrawer(moveFocus) {
@@ -553,9 +558,11 @@ function openStepsDrawer(moveFocus) {
 function closeStepsDrawer(moveFocus) {
   document.getElementById("steps-drawer").classList.add("hidden");
   syncStepsToggle();
-  // Return focus to the toggle that reopens the drawer, if it is on screen.
-  const toggle = document.getElementById("show-steps");
-  if (moveFocus && !toggle.classList.contains("hidden")) toggle.focus();
+  // Return focus to whichever toggle that reopens the drawer is on screen.
+  const toggle = [...document.querySelectorAll('[aria-controls="steps-drawer"]')].find(
+    (el) => el.getClientRects().length
+  );
+  if (moveFocus && toggle) toggle.focus();
 }
 
 document.getElementById("show-steps").addEventListener("click", () => openStepsDrawer(true));
@@ -720,7 +727,9 @@ document.addEventListener("click", (e) => {
 // pev-clusters handler below); empty space opens a "Start here / Go here"
 // popup. Every bubble offers both, so no tap is a dead end, and a route on
 // the map can be edited the same way (POI pins are hidden while it is).
+// Mid-ride, taps only pan, so a bump can't change the trip.
 map.on("click", (e) => {
+  if (ride.active) return;
   // Cluster clicks are the zoom handler's job — don't treat them as empty space.
   if (map.queryRenderedFeatures(e.point, { layers: ["pev-clusters"] }).length) return;
   const feats = map.queryRenderedFeatures(e.point, { layers: ["pev-pois"] });
@@ -786,20 +795,18 @@ document.addEventListener("gesturestart", (e) => {
   if (!(e.target instanceof Element) || !e.target.closest("#map")) e.preventDefault();
 });
 
-// While a route is up on a phone, the panel tucks away and a cancel button
-// is the way back to it.
+// Route-dependent chrome: "Start ride" appears once there is a route, and
+// POI pins and count bubbles step aside so the route reads clearly.
 function syncNavUI() {
-  const nav = IS_MOBILE && state.routeShown;
-  document.body.classList.toggle("navigating", nav);
-  document.getElementById("cancel-route").classList.toggle("hidden", !nav);
-  // Declutter the map while navigating: POI pins and count bubbles go away.
+  document.getElementById("route-actions").classList.toggle("hidden", !state.routeShown);
   for (const id of ["pev-pois", "pev-clusters", "pev-cluster-count"]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", state.routeShown ? "none" : "visible");
   }
 }
-document.getElementById("cancel-route").addEventListener("click", resetTrip);
 
-// iOS 13+ requires a user gesture for compass access — ask on the first tap.
+// Compass access. iOS 13+ only grants it from a user gesture, so this runs
+// from the "Start ride" tap. Touch devices only: a laptop has no compass
+// worth following.
 function ensureOrientation() {
   if (!IS_MOBILE || orientBound) return;
   if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
@@ -813,30 +820,33 @@ function ensureOrientation() {
   }
 }
 
-// Heading-up rotation: while a route is shown, the map turns with the rider
-// so the upcoming turn is always "straight ahead". iOS gives compass heading
-// directly; elsewhere derive it from the absolute alpha angle.
+// Compass heading for heading-up while riding — the fallback for when the
+// GPS course is unavailable (standing still, or too slow to be reliable).
+// iOS gives the heading directly; elsewhere it is derived from the absolute
+// alpha angle. Rotation is throttled in rotateToHeading: these events fire
+// dozens of times a second, and easing on each one made the map jitter.
 let orientBound = false;
 function bindOrientation() {
   if (orientBound) return;
   orientBound = true;
   const handler = (e) => {
-    if (!state.routeShown) return;
+    if (!ride.active) return;
     let hdg = null;
     if (typeof e.webkitCompassHeading === "number") hdg = e.webkitCompassHeading;
     else if (e.absolute && typeof e.alpha === "number") hdg = 360 - e.alpha;
     if (hdg === null || Number.isNaN(hdg)) return;
-    map.easeTo({ bearing: hdg, duration: 300 });
+    if (performance.now() - ride.gpsHeadingAt < GPS_HEADING_FRESH_MS) return; // moving: GPS course wins
+    ride.heading = hdg;
+    rotateToHeading();
   };
   window.addEventListener("deviceorientationabsolute", handler, true);
   window.addEventListener("deviceorientation", handler, true);
 }
-if (IS_MOBILE) window.addEventListener("pointerdown", ensureOrientation);
 
-// Keep the screen awake while navigating (Screen Wake Lock API).
+// Keep the screen awake while riding (Screen Wake Lock API).
 let wakeLock = null;
 async function acquireWakeLock() {
-  if (!IS_MOBILE || !("wakeLock" in navigator) || wakeLock) return;
+  if (!("wakeLock" in navigator) || wakeLock) return;
   try {
     wakeLock = await navigator.wakeLock.request("screen");
   } catch {
@@ -849,7 +859,470 @@ function releaseWakeLock() {
 }
 // The lock is dropped when the tab hides; re-acquire on return.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && state.routeShown) acquireWakeLock();
+  if (document.visibilityState === "visible" && ride.active && !ride.arrived) acquireWakeLock();
+});
+
+// localStorage can be unavailable (private mode, blocked site data) or throw
+// on access; preferences are a convenience, so failures fall back quietly.
+function storageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* not persisted — the in-memory value still applies this visit */
+  }
+}
+
+// ------------------------------------------------------- ride mode: logic
+//
+// Pure functions — no DOM, no map — so progress tracking can be tested on
+// its own. Distances are meters; points are [lon, lat].
+
+const RIDE = Object.freeze({
+  OFF_ROUTE_M: 40, // farther than this from the route line is "off route"...
+  OFF_ROUTE_FIXES: 3, // ...for this many fixes in a row triggers a reroute
+  MAX_ACCURACY_M: 50, // vaguer fixes neither count toward nor reset off-route
+  PASSED_M: 8, // a maneuver is done once the rider is this far past it
+  ARRIVE_M: 20, // this close to the route's end counts as arrived
+  FAR_PROMPT_M: 152, // ~500 ft: "In 500 feet, turn right onto…"
+  NEAR_PROMPT_M: 30, // ~100 ft: "Turn right onto…"
+  GPS_HEADING_MIN_MPS: 1.5, // below this the GPS course is noise
+  BEARING_MIN_MS: 500, // rotate the map at most twice a second...
+  BEARING_MIN_DEG: 6, // ...and only for a visible change
+});
+const GPS_HEADING_FRESH_MS = 3000;
+const M_PER_DEG = 111320;
+
+// Equirectangular projection to local meters around lat0: accurate to well
+// under a meter across a city-scale route, and cheap enough to run per fix.
+function toLocalXY([lon, lat], lat0) {
+  return [lon * M_PER_DEG * Math.cos((lat0 * Math.PI) / 180), lat * M_PER_DEG];
+}
+
+// Precompute a route polyline for snapping: projected vertices and the
+// cumulative distance at each.
+function buildRouteLine(path) {
+  const lat0 = path[0][1];
+  const pts = path.map((p) => toLocalXY(p, lat0));
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  }
+  return { path, pts, cum, lat0, length: cum[cum.length - 1] };
+}
+
+// Closest point on the route to `p`: {distance (m off the line), along (m
+// from the start), point [lon, lat], bearing of that segment}. Segments that
+// end before `fromAlong` are skipped, so a route that doubles back near
+// itself snaps to the stretch the rider is actually on.
+function snapToRoute(line, p, fromAlong = 0) {
+  const [px, py] = toLocalXY(p, line.lat0);
+  const from = Math.min(Math.max(fromAlong, 0), line.length);
+  let best = null;
+  for (let i = 0; i < line.pts.length - 1; i++) {
+    if (line.cum[i + 1] < from) continue;
+    const [ax, ay] = line.pts[i];
+    const [bx, by] = line.pts[i + 1];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.min(Math.max(((px - ax) * dx + (py - ay) * dy) / len2, 0), 1) : 0;
+    const distance = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    if (!best || distance < best.distance) best = { distance, segment: i, t };
+  }
+  if (!best) {
+    // Single-vertex route: the start is the end.
+    const [x, y] = line.pts[0];
+    return { distance: Math.hypot(px - x, py - y), along: 0, point: line.path[0], bearing: null };
+  }
+  const { segment: i, t } = best;
+  const a = line.path[i];
+  const b = line.path[i + 1];
+  const [ax, ay] = line.pts[i];
+  const [bx, by] = line.pts[i + 1];
+  return {
+    distance: best.distance,
+    along: line.cum[i] + t * (line.cum[i + 1] - line.cum[i]),
+    point: [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])],
+    bearing: ((Math.atan2(bx - ax, by - ay) * 180) / Math.PI + 360) % 360,
+  };
+}
+
+// Where along the route each step's maneuver happens: the departure at 0,
+// each turn at its turn_point (snapped in order, so a corner the route passes
+// twice resolves to the right pass), and the arrival at the route's end.
+function maneuverPositions(line, steps) {
+  let from = 0;
+  return steps.map((s, i) => {
+    if (i === 0) return 0;
+    if (s.maneuver === "arrive") return line.length;
+    if (s.turn_point) from = snapToRoute(line, s.turn_point, from).along;
+    return from;
+  });
+}
+
+// The next maneuver ahead of a rider `along` meters into the route, and the
+// distance to it. Progress only moves forward from `current`, so GPS jitter
+// around a corner never flips the banner back to a turn already taken.
+function nextManeuver(positions, along, current = 1) {
+  const last = positions.length - 1;
+  let index = Math.min(Math.max(current, 1), last);
+  while (index < last && along >= positions[index] + RIDE.PASSED_M) index++;
+  return { index, distance: Math.max(0, positions[index] - along) };
+}
+
+// Consecutive-fix counter for off-route detection: a fix far from the line
+// counts up, a fix on it resets, and a fix too vague to judge changes nothing.
+function offRouteCount(count, distance, accuracy) {
+  if (accuracy > RIDE.MAX_ACCURACY_M) return count;
+  return distance > RIDE.OFF_ROUTE_M ? count + 1 : 0;
+}
+
+// Which voice prompt is due for the next maneuver given how many have been
+// spoken for it already: 0 none due, 1 the ~500 ft heads-up, 2 the ~100 ft
+// "turn now". Reaching 100 ft first skips the heads-up.
+function promptLevel(distance, spoken) {
+  if (distance <= RIDE.NEAR_PROMPT_M) return spoken < 2 ? 2 : 0;
+  if (distance <= RIDE.FAR_PROMPT_M) return spoken < 1 ? 1 : 0;
+  return 0;
+}
+
+// Heading for heading-up: the GPS course when moving fast enough for it to
+// mean something, else the compass (null: keep the current bearing).
+function pickHeading(coords, compass = null) {
+  if (coords && coords.speed > RIDE.GPS_HEADING_MIN_MPS && Number.isFinite(coords.heading)) return coords.heading;
+  return Number.isFinite(compass) ? compass : null;
+}
+
+// Throttle + deadband for map rotation.
+function shouldRotate(currentDeg, targetDeg, msSinceLast) {
+  const delta = Math.abs(((targetDeg - currentDeg + 540) % 360) - 180);
+  return msSinceLast >= RIDE.BEARING_MIN_MS && delta >= RIDE.BEARING_MIN_DEG;
+}
+
+function spokenDistance(m) {
+  const ft = m * FT_PER_M;
+  if (ft < 1000) return `${Math.max(50, Math.round(ft / 50) * 50)} feet`;
+  return `${(m / M_PER_MILE).toFixed(1)} miles`;
+}
+
+function promptText(step, level, distance) {
+  const instruction = step.instruction.replace(/\.$/, "");
+  if (level === 2) return `${instruction}.`;
+  return `In ${spokenDistance(distance)}, ${instruction.charAt(0).toLowerCase()}${instruction.slice(1)}.`;
+}
+
+// ------------------------------------------------------- ride mode: UI
+//
+// "Start ride" turns the route into hands-free guidance: a banner with the
+// next maneuver and a live countdown, voice prompts, auto-advance as the
+// rider passes each turn, automatic reroute when off course, and a
+// heading-up map that follows the rider.
+
+const VOICE_KEY = "pev-voice-muted";
+const ride = {
+  active: false,
+  arrived: false,
+  watchId: null,
+  line: null, // buildRouteLine(route.path)
+  positions: [], // maneuverPositions(line, route.steps)
+  next: 1, // index of the next maneuver's step
+  spoken: 0, // voice prompts given for that step (see promptLevel)
+  along: 0, // rider's progress along the route, meters
+  offCount: 0,
+  rerouting: false,
+  position: null, // last rider position shown, [lon, lat]
+  heading: null,
+  gpsHeadingAt: -Infinity,
+  bearingAt: -Infinity,
+  followPausedUntil: 0,
+};
+let voiceMuted = storageGet(VOICE_KEY) === "1";
+
+const riderMarker = new maplibregl.Marker({ element: makeRiderPuck(), rotationAlignment: "map" });
+function makeRiderPuck() {
+  const el = document.createElement("div");
+  el.className = "rider-puck";
+  el.setAttribute("aria-hidden", "true");
+  return el;
+}
+
+// MapLibre's own location control would fight ride mode for the camera, so
+// remember whether it is locked onto the user and switch it off on start.
+let geolocateLocked = false;
+if (geolocateControl) {
+  geolocateControl.on("trackuserlocationstart", () => (geolocateLocked = true));
+  geolocateControl.on("trackuserlocationend", () => (geolocateLocked = false));
+}
+
+function startRide() {
+  if (!state.route || ride.active) return;
+  if (!window.isSecureContext || !navigator.geolocation) {
+    showTripStatus("Ride mode needs your location, which this browser can't share here. Open the app over https.", true);
+    return;
+  }
+  ride.active = true;
+  loadRideRoute(state.route);
+  document.body.classList.add("riding");
+  if (geolocateControl && geolocateLocked) geolocateControl.trigger(); // locked → off
+  startMarker.setDraggable(false);
+  endMarker.setDraggable(false);
+  if (SMALL_SCREEN.matches) closeStepsDrawer(false);
+  syncMuteButton();
+  setRideStatus("Waiting for GPS…");
+  ensureOrientation();
+  acquireWakeLock();
+  // Spoken from the tap itself: iOS only unlocks speech inside a gesture.
+  speak(state.route.steps[0].instruction);
+  startRideTracking();
+}
+
+function startRideTracking() {
+  if (ride.watchId !== null) return;
+  ride.watchId = navigator.geolocation.watchPosition(onRideFix, onRideError, {
+    enableHighAccuracy: true,
+    maximumAge: 1000,
+    timeout: 20000,
+  });
+}
+
+// (Re)start progress tracking on a route: on ride start and after a reroute.
+function loadRideRoute(route) {
+  ride.line = buildRouteLine(route.path);
+  ride.positions = maneuverPositions(ride.line, route.steps);
+  ride.next = 1;
+  ride.spoken = 0;
+  ride.along = 0;
+  ride.offCount = 0;
+  ride.rerouting = false;
+  ride.arrived = false;
+  renderRideBanner();
+  markCurrentStep();
+  // A new route after arriving (e.g. a vehicle change) resumes guidance.
+  if (ride.active) {
+    startRideTracking();
+    acquireWakeLock();
+  }
+}
+
+function endRide() {
+  if (!ride.active) return;
+  stopRideTracking();
+  ride.active = false;
+  ride.arrived = false;
+  ride.position = null;
+  riderMarker.remove();
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  releaseWakeLock();
+  document.body.classList.remove("riding");
+  startMarker.setDraggable(true);
+  endMarker.setDraggable(true);
+  markCurrentStep();
+  // Back to the north-up overview of the route.
+  map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
+  if (state.route) fitToPath(state.route.path, { bearing: 0, duration: REDUCED_MOTION ? 0 : 600 });
+  else map.easeTo({ bearing: 0, ...FLY });
+}
+
+function stopRideTracking() {
+  if (ride.watchId !== null) navigator.geolocation.clearWatch(ride.watchId);
+  ride.watchId = null;
+}
+
+function onRideFix(pos) {
+  if (!ride.active || ride.arrived || !ride.line) return;
+  const { coords } = pos;
+  const here = [coords.longitude, coords.latitude];
+  const snap = snapToRoute(ride.line, here, ride.along - 50);
+  const onRoute = snap.distance <= RIDE.OFF_ROUTE_M;
+  if (onRoute) ride.along = snap.along;
+
+  const gpsHeading = pickHeading(coords);
+  if (gpsHeading !== null) {
+    ride.heading = gpsHeading;
+    ride.gpsHeadingAt = performance.now();
+  }
+  ride.position = onRoute ? snap.point : here;
+  riderMarker.setLngLat(ride.position).setRotation(ride.heading ?? snap.bearing ?? 0).addTo(map);
+  followRider();
+
+  ride.offCount = offRouteCount(ride.offCount, snap.distance, coords.accuracy);
+  if (ride.offCount >= RIDE.OFF_ROUTE_FIXES) {
+    rerouteFrom(here);
+    return;
+  }
+  if (!ride.rerouting) setRideStatus("");
+  advanceRide();
+}
+
+function onRideError(err) {
+  const msg =
+    err.code === 1
+      ? "Location permission is off — allow it for this site to ride hands-free."
+      : "Waiting for a GPS fix…";
+  setRideStatus(msg);
+}
+
+function advanceRide() {
+  if (ride.along >= ride.line.length - RIDE.ARRIVE_M) {
+    arrive();
+    return;
+  }
+  const { index, distance } = nextManeuver(ride.positions, ride.along, ride.next);
+  if (index !== ride.next) {
+    ride.next = index;
+    ride.spoken = 0;
+    markCurrentStep();
+  }
+  const step = state.route.steps[index];
+  const level = promptLevel(distance, ride.spoken);
+  // The arrival is announced when it happens, not 100 ft out.
+  if (level && !(step.maneuver === "arrive" && level === 2)) speak(promptText(step, level, distance));
+  if (level) ride.spoken = level;
+  renderRideBanner(distance);
+}
+
+function arrive() {
+  ride.arrived = true;
+  stopRideTracking();
+  releaseWakeLock();
+  const dest = state.route.end_label || "your destination";
+  speak(`You have arrived at ${dest}.`);
+  setRideStatus("");
+  const banner = document.getElementById("ride-banner");
+  banner.dataset.state = "arrived";
+  document.getElementById("ride-arrow").dataset.maneuver = "arrive";
+  document.getElementById("ride-distance").textContent = "Arrived";
+  document.getElementById("ride-instruction").textContent = `You've arrived at ${dest}.`;
+}
+
+// Off route for several fixes: route again from where the rider is now.
+function rerouteFrom([lon, lat]) {
+  ride.offCount = 0;
+  if (ride.rerouting) return;
+  ride.rerouting = true;
+  setRideStatus("Off route — rerouting…");
+  speak("Rerouting.");
+  setStart({ kind: "coords", lat, lon, label: "My location" });
+}
+
+function renderRideBanner(distance) {
+  const steps = state.route.steps;
+  const index = Math.min(ride.next, steps.length - 1);
+  const step = steps[index];
+  const d = distance ?? Math.max(0, ride.positions[index] - ride.along);
+  document.getElementById("ride-banner").dataset.state = "riding";
+  document.getElementById("ride-arrow").dataset.maneuver = step.maneuver;
+  document.getElementById("ride-distance").textContent = fmtDist(d);
+  document.getElementById("ride-instruction").textContent = step.instruction;
+  const left = Math.max(0, ride.line.length - ride.along);
+  const secs = state.route.distance_m ? (state.route.duration_s * left) / state.route.distance_m : 0;
+  document.getElementById("ride-remaining").textContent = `${fmtDist(left)} · ${fmtMin(secs)} to go`;
+}
+
+function setRideStatus(text) {
+  const el = document.getElementById("ride-status");
+  el.textContent = text;
+  el.classList.toggle("hidden", !text);
+}
+
+// Mark the step being approached in the overview list.
+function markCurrentStep() {
+  document.querySelectorAll("#steps li").forEach((li, i) => {
+    const current = ride.active && !ride.arrived && i === ride.next;
+    li.classList.toggle("current", current);
+    if (current) li.setAttribute("aria-current", "step");
+    else li.removeAttribute("aria-current");
+  });
+}
+
+// Keep the rider in view, heading-up, in the lower part of the screen so
+// more of the road ahead shows. Paused for a while after the rider pans.
+function followRider() {
+  if (!ride.position || performance.now() < ride.followPausedUntil) return;
+  document.getElementById("ride-recenter").classList.add("hidden");
+  const pad = mapPadding(16);
+  const h = map.getContainer().clientHeight;
+  pad.top += Math.max(0, Math.round((h - pad.top - pad.bottom) * 0.3));
+  ride.bearingAt = performance.now();
+  map.easeTo({
+    center: ride.position,
+    bearing: ride.heading ?? map.getBearing(),
+    zoom: Math.max(map.getZoom(), 16.5),
+    padding: pad,
+    duration: REDUCED_MOTION ? 0 : 800,
+  });
+}
+
+function rotateToHeading() {
+  if (ride.heading === null || performance.now() < ride.followPausedUntil) return;
+  if (!shouldRotate(map.getBearing(), ride.heading, performance.now() - ride.bearingAt)) return;
+  ride.bearingAt = performance.now();
+  map.rotateTo(ride.heading, { duration: REDUCED_MOTION ? 0 : 400 });
+  if (ride.position) riderMarker.setRotation(ride.heading);
+}
+
+// The rider panned/zoomed by hand (or picked a step to look at): stop
+// following for a while and offer a way back.
+const FOLLOW_PAUSE_MS = 20000;
+function pauseFollow() {
+  ride.followPausedUntil = performance.now() + FOLLOW_PAUSE_MS;
+  document.getElementById("ride-recenter").classList.remove("hidden");
+}
+map.on("movestart", (e) => {
+  if (ride.active && e.originalEvent) pauseFollow();
+});
+
+function speak(text) {
+  if (voiceMuted || !text || !("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "en-US";
+  speechSynthesis.speak(u);
+}
+
+function syncMuteButton() {
+  const b = document.getElementById("ride-mute");
+  b.setAttribute("aria-pressed", String(!voiceMuted));
+  b.querySelector(".icon").textContent = voiceMuted ? "🔇" : "🔊";
+}
+
+// Publish how far an overlay reaches into the viewport from its edge (top:
+// its bottom y; bottom: its height above the viewport bottom) as a CSS
+// variable, so MapLibre's corner controls can step clear of it.
+function exposeOverlayEdge(id, cssVar, edge) {
+  const el = document.getElementById(id);
+  const update = () => {
+    const r = el.getBoundingClientRect();
+    const px = !r.height ? 0 : edge === "top" ? r.bottom : window.innerHeight - r.top;
+    document.documentElement.style.setProperty(cssVar, `${Math.ceil(px)}px`);
+  };
+  new ResizeObserver(update).observe(el);
+  window.addEventListener("resize", update);
+}
+exposeOverlayEdge("ride-banner", "--ride-banner-edge", "top");
+exposeOverlayEdge("ride-controls", "--ride-controls-edge", "bottom");
+
+document.getElementById("start-ride").addEventListener("click", startRide);
+document.getElementById("end-ride").addEventListener("click", endRide);
+document.getElementById("ride-steps").addEventListener("click", () => {
+  if (document.getElementById("steps-drawer").classList.contains("hidden")) openStepsDrawer(true);
+  else closeStepsDrawer(true);
+});
+document.getElementById("ride-recenter").addEventListener("click", () => {
+  ride.followPausedUntil = 0;
+  followRider();
+});
+document.getElementById("ride-mute").addEventListener("click", () => {
+  voiceMuted = !voiceMuted;
+  storageSet(VOICE_KEY, voiceMuted ? "1" : "0");
+  if (voiceMuted && "speechSynthesis" in window) speechSynthesis.cancel();
+  syncMuteButton();
 });
 
 // ---------------------------------------------------------------- routing
@@ -891,9 +1364,16 @@ async function computeRoute() {
     renderRoute(data);
   } catch (err) {
     if (err.name === "AbortError" || request !== routeRequest) return;
+    summary.innerHTML = `<span class="warn">⚠ ${escapeHtml(err.message)}</span>`;
+    if (ride.active) {
+      // A failed reroute: keep guiding on the current route and try again
+      // after the next few off-route fixes.
+      ride.rerouting = false;
+      setRideStatus(`Couldn't reroute: ${err.message}`);
+      return;
+    }
     state.routeShown = false;
     syncNavUI();
-    summary.innerHTML = `<span class="warn">⚠ ${escapeHtml(err.message)}</span>`;
     closeStepsDrawer(false);
   } finally {
     if (request === routeRequest) routeRequest = null;
@@ -914,13 +1394,9 @@ function refToApi(ref) {
 }
 
 function renderRoute(data) {
+  state.route = data;
   state.routeShown = true;
   syncNavUI();
-  if (IS_MOBILE) {
-    // Start tracking the rider and keep the screen on for the ride.
-    if (geolocateControl) geolocateControl.trigger();
-    acquireWakeLock();
-  }
   const fc = {
     type: "Feature",
     geometry: { type: "LineString", coordinates: data.path },
@@ -974,7 +1450,15 @@ function renderRoute(data) {
     ol.appendChild(li);
   }
   document.getElementById("steps-title").textContent = "Turn-by-turn";
-  openStepsDrawer(false);
+  if (ride.active) {
+    // A reroute mid-ride: pick up guidance on the new route, camera stays
+    // with the rider.
+    loadRideRoute(data);
+    setRideStatus("");
+    return;
+  }
+  // On a phone the drawer would cover most of the map; it is one tap away.
+  if (!SMALL_SCREEN.matches) openStepsDrawer(false);
   // Fit after the drawer opens so the padding accounts for it.
   fitToPath(data.path, { duration: REDUCED_MOTION ? 0 : 600 });
 }
@@ -990,10 +1474,11 @@ function fitToPath(path, options = {}) {
 }
 
 // Padding (px) that keeps fitted content clear of the panels overlaying the
-// map (the bottom sheet on phones, the steps drawer). Each overlay pads the
-// edge it hugs, measured from the live layout so it is right at any viewport
-// size (a fixed 380px left inset is wider than a phone).
-const MAP_OVERLAYS = ["sidebar", "steps-drawer"];
+// map (the bottom sheet on phones, the steps drawer, the ride banner and
+// controls). Each overlay pads the edge it hugs, measured from the live
+// layout so it is right at any viewport size (a fixed 380px left inset is
+// wider than a phone).
+const MAP_OVERLAYS = ["sidebar", "steps-drawer", "ride-banner", "ride-controls"];
 function mapPadding(gap = 40) {
   const m = map.getContainer().getBoundingClientRect();
   const pad = { top: gap, right: gap, bottom: gap, left: gap };
@@ -1063,6 +1548,7 @@ function selectStep(li, step) {
   map.getSource("pev-step-hl").setData({ type: "FeatureCollection", features: line });
   map.getSource("pev-step-dot").setData({ type: "FeatureCollection", features: dots });
 
+  if (ride.active) pauseFollow(); // let the rider look before snapping back
   if (step.geometry && step.geometry.length > 1) {
     fitToPath(step.geometry, { maxZoom: 17, duration: REDUCED_MOTION ? 0 : 500 });
   } else if (step.turn_point) {
@@ -1090,11 +1576,11 @@ const welcomeModal = document.getElementById("welcome-modal");
 const welcomeNever = document.getElementById("welcome-never");
 
 function closeWelcome() {
-  if (welcomeNever.checked) localStorage.setItem(WELCOME_KEY, "1");
+  if (welcomeNever.checked) storageSet(WELCOME_KEY, "1");
   welcomeModal.classList.add("hidden");
 }
 
-if (!localStorage.getItem(WELCOME_KEY)) {
+if (!storageGet(WELCOME_KEY)) {
   welcomeModal.classList.remove("hidden");
   document.getElementById("welcome-close").focus();
 }

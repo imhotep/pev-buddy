@@ -21,8 +21,16 @@ def test_index_html_has_required_ids():
         "use-location",
         "use-location-end",
         "reset-route",
-        "cancel-route",
         "route-summary",
+        "route-actions",
+        "start-ride",
+        "ride-banner",
+        "ride-controls",
+        "ride-mute",
+        "ride-steps",
+        "ride-recenter",
+        "end-ride",
+        "trip-status",
         "map",
         "steps-drawer",
         "steps-close",
@@ -39,7 +47,11 @@ def test_app_js_binds_every_control_in_html():
     js = _text("app.js")
     for i in (
         "reset-route",
-        "cancel-route",
+        "start-ride",
+        "end-ride",
+        "ride-mute",
+        "ride-steps",
+        "ride-recenter",
         "show-steps",
         "steps-close",
         "use-location",
@@ -103,18 +115,31 @@ def test_page_pinch_zoom_is_disabled_but_map_is_exempt():
     assert "touch-action: manipulation" in _text("style.css")
 
 
-def test_mobile_navigation_mode_hides_panel_behind_cancel_button():
+def test_ride_mode_wiring():
     js = _text("app.js")
     css = _text("style.css")
-    # Nav mode is driven by routeShown and mobile-only.
-    nav_body = js.split("function syncNavUI()", 1)[1].split("}", 1)[0]
-    assert "routeShown" in nav_body and "IS_MOBILE" in nav_body
-    # The cancel button ends the trip (which restores the panel).
-    assert js.count('getElementById("cancel-route")') >= 2
-    assert re.search(r'cancel-route"\)\.addEventListener\("click", resetTrip\)', js)
-    # Hiding the panel is a mobile layout rule, not desktop behavior.
+    # "Start ride" is offered once a route is shown; End ride leaves it.
+    nav_body = js.split("function syncNavUI()", 1)[1].split("\n}\n", 1)[0]
+    assert "route-actions" in nav_body and "routeShown" in nav_body
+    assert 'getElementById("start-ride").addEventListener("click", startRide)' in js
+    assert 'getElementById("end-ride").addEventListener("click", endRide)' in js
+    # Hands-free: GPS watch, voice, wake lock, mute remembered safely.
+    start_body = js.split("function startRide()", 1)[1].split("\n}\n", 1)[0]
+    for needed in ("startRideTracking()", "acquireWakeLock()", "speak(", "ensureOrientation()"):
+        assert needed in start_body, f"startRide never calls {needed}"
+    tracking = js.split("function startRideTracking()", 1)[1].split("\n}\n", 1)[0]
+    assert "watchPosition" in tracking
+    assert "speechSynthesis" in js and "pev-voice-muted" in js
+    storage = js.split("function storageGet(", 1)[1].split("// ----", 1)[0]
+    assert storage.count("try {") == 2, "localStorage access must be guarded"
+    # Compass rotation is throttled, not an easeTo per sensor event.
+    orient = js.split("function bindOrientation()", 1)[1].split("\n}\n", 1)[0]
+    assert "easeTo" not in orient and "rotateToHeading()" in orient
+    # The full-screen ride layout is a phone rule; MapLibre controls step
+    # clear of the banner and control bar.
     mobile = css.split("@media (max-width: 760px)", 1)[1]
-    assert "body.navigating #sidebar" in mobile
+    assert "body.riding #sidebar" in mobile
+    assert "--ride-banner-edge" in mobile and "--ride-controls-edge" in mobile
 
 
 def test_poi_layers_hide_while_navigating():

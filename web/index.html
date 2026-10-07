@@ -53,6 +53,9 @@
       <div id="trip-status" class="trip-status hidden" role="status" aria-live="polite"></div>
       <button id="reset-route" class="mini">Reset</button>
       <div id="route-summary" class="hidden" aria-live="polite"></div>
+      <div id="route-actions" class="route-actions hidden">
+        <button id="start-ride" class="primary"><span aria-hidden="true">▶</span> Start ride</button>
+      </div>
     </section>
 
     <footer>
@@ -80,7 +83,29 @@
       <button id="welcome-close">Got it</button>
     </div>
   </div>
-  <button id="cancel-route" class="hidden">✕ Cancel navigation</button>
+  <!-- Ride mode: shown while body.riding -->
+  <div id="ride-banner" role="region" aria-label="Ride guidance">
+    <div class="ride-next">
+      <svg id="ride-arrow" class="ride-arrow" viewBox="0 0 48 48" aria-hidden="true">
+        <path class="arrow" d="M24 3 41 21H30.5V45h-13V21H7z" />
+        <path class="pin" d="M24 3a14 14 0 0 1 14 14c0 10.5-14 28-14 28S10 27.5 10 17A14 14 0 0 1 24 3zm0 8.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z" />
+      </svg>
+      <div class="ride-text">
+        <div id="ride-distance" class="ride-distance"></div>
+        <div id="ride-instruction" class="ride-instruction" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="ride-meta">
+      <span id="ride-remaining"></span>
+      <span id="ride-status" class="ride-status hidden" role="status"></span>
+    </div>
+  </div>
+  <div id="ride-controls">
+    <button id="ride-mute" aria-pressed="true"><span class="icon" aria-hidden="true">🔊</span> Voice</button>
+    <button id="ride-steps" aria-controls="steps-drawer" aria-expanded="false">Steps</button>
+    <button id="ride-recenter" class="hidden">Re-center</button>
+    <button id="end-ride" class="end">End ride</button>
+  </div>
   <button id="show-steps" class="hidden" aria-expanded="false" aria-controls="steps-drawer">Show steps</button>
   <div id="steps-drawer" class="hidden" role="region" aria-labelledby="steps-title">
     <div class="steps-head">
