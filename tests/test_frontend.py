@@ -62,12 +62,13 @@ def browser():
 
 @pytest.fixture()
 def open_app(browser, live_server):
-    """Factory: open the app in a fresh page, optionally with a viewport and
-    extra init scripts. Every page opened is checked for uncaught JS errors."""
+    """Factory: open the app in a fresh page, optionally with a viewport,
+    extra init scripts and page options (e.g. is_mobile). Every page opened is
+    checked for uncaught JS errors."""
     opened = []
 
-    def _open(width=1280, height=800, init_scripts=()):
-        pg = browser.new_page(viewport={"width": width, "height": height})
+    def _open(width=1280, height=800, init_scripts=(), **page_options):
+        pg = browser.new_page(viewport={"width": width, "height": height}, **page_options)
         # Tests exercise the app, not the first-visit intro — pre-dismiss it.
         pg.add_init_script("localStorage.setItem('pev-welcome-dismissed', '1')")
         for script in init_scripts:
@@ -444,6 +445,12 @@ def test_ride_logic_pure_functions(page):
               pickHeading({{ speed: 5, heading: NaN }}, null),
             ],
             rotate: [shouldRotate(0, 3, 1000), shouldRotate(0, 30, 100), shouldRotate(350, 20, 1000)],
+            // A fast 200 m street, then a slow 100 m sidewalk, then arrival.
+            toGo: [0, 100, 250, 300].map((along) => secondsToGo([
+              {{ distance_m: 200, duration_s: 40 }},
+              {{ distance_m: 100, duration_s: 60 }},
+              {{ distance_m: 0, duration_s: 0 }},
+            ], along)),
           }};
         }}"""
     )
@@ -459,6 +466,8 @@ def test_ride_logic_pure_functions(page):
     assert r["prompts"] == [0, 1, 0, 2, 2, 0]
     assert r["heading"] == [90, 10, None]
     assert r["rotate"] == [False, False, True]
+    # Time left follows each step's own pace, not the route-wide average.
+    assert r["toGo"] == [100, 80, 30, 0]
 
 
 def test_ride_mode_auto_advances_along_route(ride_page):
@@ -595,6 +604,68 @@ def test_phone_layout_keeps_map_visible_and_targets_tappable(open_app):
     page.click("#ride-steps")
     drawer = rect(page, "#steps-drawer")
     assert drawer["top"] >= banner_box["bottom"] and drawer["bottom"] <= controls_box["top"]
+
+
+def framed_route(page):
+    """Once the camera settles: the endpoint pins' boxes and the route's
+    projected points, in viewport pixels."""
+    page.wait_for_timeout(100)  # let a refit triggered by a resize start
+    page.wait_for_function("() => !map.isMoving()")
+    return page.evaluate(
+        """() => ({
+          pins: [startMarker, endMarker].map((m) => m.getElement().getBoundingClientRect().toJSON()),
+          path: state.route.path.map((c) => {
+            const p = map.project(c);
+            const m = map.getContainer().getBoundingClientRect();
+            return { x: p.x + m.left, y: p.y + m.top };
+          }),
+        })"""
+    )
+
+
+def test_phone_route_fit_keeps_both_pins_above_the_sheet(open_app):
+    page = open_app(390, 844, is_mobile=True, has_touch=True, device_scale_factor=2)
+    # A north-south route (A -> D -> G): its height, not its width, sets the
+    # zoom, so the sheet's height matters.
+    set_trip(page, end=(0, -200))
+    page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=15000)
+
+    def assert_pins_clear():
+        sheet_top = rect(page, "#sidebar")["top"]
+        for pin in framed_route(page)["pins"]:
+            assert pin["top"] >= 0 and pin["left"] >= 0 and pin["right"] <= 390, pin
+            assert pin["bottom"] <= sheet_top, f"pin {pin} hidden behind the sheet (top {sheet_top})"
+
+    assert_pins_clear()
+    # The sheet grows after the fit (a long warning wrapping onto more lines):
+    # the overview is fitted again rather than left half under the sheet.
+    sheet_before = rect(page, "#sidebar")["top"]
+    page.evaluate(
+        """() => document.getElementById('route-summary').insertAdjacentHTML('beforeend',
+             '<div class="warn">' + 'A very long warning that wraps. '.repeat(8) + '</div>')"""
+    )
+    assert rect(page, "#sidebar")["top"] < sheet_before - 40
+    assert_pins_clear()
+
+
+def test_desktop_steps_drawer_never_covers_the_route(open_app):
+    page = open_app(1280, 800, init_scripts=[GEO_AND_SPEECH_MOCK])
+    route_via_ui(page)
+    assert page.is_visible("#steps-drawer")  # opens with the route on desktop
+    drawer_left = rect(page, "#steps-drawer")["left"]
+    framed = framed_route(page)
+    assert all(p["x"] < drawer_left for p in framed["path"])
+    assert all(pin["right"] <= drawer_left for pin in framed["pins"])
+
+    # Riding: the drawer starts shut and the sidebar's Start ride is gone;
+    # the ride bar's Steps button brings the drawer back.
+    page.click("#start-ride")
+    assert not page.is_visible("#steps-drawer")
+    assert not page.is_visible("#start-ride")
+    page.click("#ride-steps")
+    assert page.is_visible("#steps-drawer")
+    page.click("#end-ride")
+    assert page.is_visible("#start-ride")
 
 
 def test_use_my_location_reports_failures_in_page(page):

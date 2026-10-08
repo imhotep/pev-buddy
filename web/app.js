@@ -818,7 +818,7 @@ function setSheetCollapsed(collapsed) {
 }
 document.getElementById("sheet-toggle").addEventListener("click", () => {
   setSheetCollapsed(!document.body.classList.contains("sheet-collapsed"));
-  if (state.route) fitToPath(state.route.path, { duration: REDUCED_MOTION ? 0 : 400 });
+  frameRoute({ duration: REDUCED_MOTION ? 0 : 400 });
 });
 
 // Compass access. iOS 13+ only grants it from a user gesture, so this runs
@@ -994,6 +994,21 @@ function nextManeuver(positions, along, current = 1) {
   return { index, distance: Math.max(0, positions[index] - along) };
 }
 
+// Riding time left from `along` meters into the route. Each step carries its
+// own duration from the server (vehicle cap x road limit, walking pace on
+// sidewalks), spread evenly over that step's distance — so the estimate
+// shrinks faster on a slow stretch than a flat route-wide average would say.
+function secondsToGo(steps, along) {
+  let start = 0;
+  let secs = 0;
+  for (const s of steps) {
+    const end = start + s.distance_m;
+    if (end > along) secs += s.duration_s * Math.min(1, (end - along) / s.distance_m);
+    start = end;
+  }
+  return secs;
+}
+
 // Consecutive-fix counter for off-route detection: a fix far from the line
 // counts up, a fix on it resets, and a fix too vague to judge changes nothing.
 function offRouteCount(count, distance, accuracy) {
@@ -1090,7 +1105,10 @@ function startRide() {
   if (geolocateControl && geolocateLocked) geolocateControl.trigger(); // locked → off
   startMarker.setDraggable(false);
   endMarker.setDraggable(false);
-  if (SMALL_SCREEN.matches) closeStepsDrawer(false);
+  // The map is the guide while riding: the steps overview starts shut on
+  // every screen size (the ride bar's Steps button brings it back).
+  framedPadding = null;
+  closeStepsDrawer(false);
   syncMuteButton();
   setRideStatus("Waiting for GPS…");
   ensureOrientation();
@@ -1143,7 +1161,7 @@ function endRide() {
   markCurrentStep();
   // Back to the north-up overview of the route.
   map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
-  if (state.route) fitToPath(state.route.path, { bearing: 0, duration: REDUCED_MOTION ? 0 : 600 });
+  if (state.route) frameRoute({ bearing: 0, duration: REDUCED_MOTION ? 0 : 600 });
   else map.easeTo({ bearing: 0, ...FLY });
 }
 
@@ -1239,7 +1257,7 @@ function renderRideBanner(distance) {
   document.getElementById("ride-distance").textContent = fmtDist(d);
   document.getElementById("ride-instruction").textContent = step.instruction;
   const left = Math.max(0, ride.line.length - ride.along);
-  const secs = state.route.distance_m ? (state.route.duration_s * left) / state.route.distance_m : 0;
+  const secs = secondsToGo(steps, ride.along);
   document.getElementById("ride-remaining").textContent = `${fmtDist(left)} · ${fmtMin(secs)} to go`;
 }
 
@@ -1293,7 +1311,9 @@ function pauseFollow() {
   document.getElementById("ride-recenter").classList.remove("hidden");
 }
 map.on("movestart", (e) => {
-  if (ride.active && e.originalEvent) pauseFollow();
+  if (!e.originalEvent) return;
+  framedPadding = null; // the user moved the map: stop holding the overview
+  if (ride.active) pauseFollow();
 });
 
 function speak(text) {
@@ -1476,8 +1496,7 @@ function renderRoute(data) {
   // both would cover most of the map; steps are one tap away.
   setSheetCollapsed(true);
   if (!SMALL_SCREEN.matches) openStepsDrawer(false);
-  // Fit after the drawer opens so the padding accounts for it.
-  fitToPath(data.path, { duration: REDUCED_MOTION ? 0 : 600 });
+  frameRoute({ duration: REDUCED_MOTION ? 0 : 600 });
 }
 
 // Zoom the camera to a [lon, lat] polyline. Bounds come from the path alone —
@@ -1488,6 +1507,30 @@ function fitToPath(path, options = {}) {
   const bounds = new maplibregl.LngLatBounds(path[0], path[0]);
   for (const c of path) bounds.extend(c);
   map.fitBounds(bounds, { padding: mapPadding(), ...options });
+}
+
+// The route overview: the whole route and both endpoint pins, clear of the
+// panels over the map. Those panels can still change size after the fit —
+// the phone sheet settling to its collapsed height or wrapping a warning,
+// the steps drawer opening or closing — so the overview is held: whenever
+// the padding they need changes, it is fitted again. It lets go once the
+// camera goes elsewhere (the user pans, a step is picked, a ride starts).
+let framedPadding = null; // padding of the overview being held, as JSON
+
+function frameRoute(options = {}) {
+  if (!state.route) return;
+  const points = [...state.route.path];
+  for (const ref of [state.startRef, state.endRef]) if (ref) points.push([ref.lon, ref.lat]);
+  const padding = mapPadding();
+  framedPadding = JSON.stringify(padding);
+  fitToPath(points, { padding, ...options });
+}
+
+function keepRouteFramed() {
+  if (ride.active) followRider();
+  else if (framedPadding !== null && JSON.stringify(mapPadding()) !== framedPadding) {
+    frameRoute({ duration: REDUCED_MOTION ? 0 : 300 });
+  }
 }
 
 // Padding (px) that keeps fitted content clear of the panels overlaying the
@@ -1529,6 +1572,12 @@ function mapPadding(gap = 40) {
   return pad;
 }
 
+// Overlays resizing (or showing/hiding) and the map itself resizing are what
+// change the padding; a ride re-centers on the rider for the same reasons.
+const overlayResize = new ResizeObserver(keepRouteFramed);
+for (const id of MAP_OVERLAYS) overlayResize.observe(document.getElementById(id));
+map.on("resize", keepRouteFramed);
+
 // ---------------------------------------------------------------- step highlight
 
 function clearStepHighlight() {
@@ -1550,6 +1599,7 @@ function selectStep(li, step) {
   }
   clearStepHighlight();
   state.activeStep = step.index;
+  framedPadding = null; // the camera goes to the step, not the overview
   li.classList.add("active");
   li.setAttribute("aria-pressed", "true");
 

@@ -271,6 +271,8 @@ button.primary:hover { filter: brightness(1.1); }
 #ride-controls { display: none; }
 body.riding #ride-banner { display: block; }
 body.riding #ride-controls { display: flex; }
+/* The desktop sidebar stays up during a ride; End ride lives in the ride bar. */
+body.riding #start-ride { display: none; }
 
 #ride-banner {
   position: fixed;
