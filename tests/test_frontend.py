@@ -652,16 +652,25 @@ def test_desktop_steps_drawer_never_covers_the_route(open_app):
     page = open_app(1280, 800, init_scripts=[GEO_AND_SPEECH_MOCK])
     route_via_ui(page)
     assert page.is_visible("#steps-drawer")  # opens with the route on desktop
-    drawer_left = rect(page, "#steps-drawer")["left"]
+    d = rect(page, "#steps-drawer")
     framed = framed_route(page)
-    assert all(p["x"] < drawer_left for p in framed["path"])
-    assert all(pin["right"] <= drawer_left for pin in framed["pins"])
+    for p in framed["path"]:
+        assert not (d["left"] <= p["x"] <= d["right"] and d["top"] <= p["y"] <= d["bottom"]), p
+    for pin in framed["pins"]:
+        overlap_x = min(pin["right"], d["right"]) - max(pin["left"], d["left"])
+        overlap_y = min(pin["bottom"], d["bottom"]) - max(pin["top"], d["top"])
+        assert overlap_x <= 0 or overlap_y <= 0, f"pin {pin} under the drawer {d}"
 
     # Riding: the drawer starts shut and the sidebar's Start ride is gone;
     # the ride bar's Steps button brings the drawer back.
     page.click("#start-ride")
     assert not page.is_visible("#steps-drawer")
     assert not page.is_visible("#start-ride")
+    # The ride bar (bottom-left) pads the bottom, the banner the top; neither
+    # pushes the rider sideways.
+    pad = page.evaluate("() => mapPadding()")
+    assert pad["left"] == pad["right"] == 40
+    assert pad["top"] > 40 and pad["bottom"] > 40
     page.click("#ride-steps")
     assert page.is_visible("#steps-drawer")
     page.click("#end-ride")

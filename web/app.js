@@ -1535,9 +1535,11 @@ function keepRouteFramed() {
 
 // Padding (px) that keeps fitted content clear of the panels overlaying the
 // map (the bottom sheet on phones, the steps drawer, the ride banner and
-// controls). Each overlay pads the edge it hugs, measured from the live
-// layout so it is right at any viewport size (a fixed 380px left inset is
-// wider than a phone).
+// controls). Each overlay pads one edge — whichever clears it while giving up
+// the smaller share of the map: the drawer pads the right, the sheet and the
+// ride bar the bottom, the banner the top. Measured from the live layout so
+// it is right at any viewport size (a fixed 380px left inset is wider than a
+// phone).
 const MAP_OVERLAYS = ["sidebar", "steps-drawer", "ride-banner", "ride-controls"];
 function mapPadding(gap = 40) {
   const m = map.getContainer().getBoundingClientRect();
@@ -1549,15 +1551,12 @@ function mapPadding(gap = 40) {
     const w = Math.min(r.right, m.right) - Math.max(r.left, m.left);
     const h = Math.min(r.bottom, m.bottom) - Math.max(r.top, m.top);
     if (w <= 0 || h <= 0) continue; // beside the map, not over it (desktop sidebar)
-    if (w > m.width / 2) {
-      // Spans the map's width: a top banner or a bottom sheet.
-      if (r.top - m.top < m.bottom - r.bottom) pad.top = Math.max(pad.top, r.bottom - m.top + gap);
-      else pad.bottom = Math.max(pad.bottom, m.bottom - r.top + gap);
-    } else if (r.left - m.left < m.right - r.right) {
-      pad.left = Math.max(pad.left, r.right - m.left + gap);
-    } else {
-      pad.right = Math.max(pad.right, m.right - r.left + gap);
-    }
+    // How far in from each map edge the overlay reaches.
+    const reach = { left: r.right - m.left, right: m.right - r.left, top: r.bottom - m.top, bottom: m.bottom - r.top };
+    const side = reach.left < reach.right ? "left" : "right";
+    const end = reach.top < reach.bottom ? "top" : "bottom";
+    const edge = reach[end] / m.height <= reach[side] / m.width ? end : side;
+    pad[edge] = Math.max(pad[edge], reach[edge] + gap);
   }
   // Padding must leave some map to fit into: shrink proportionally if the
   // overlays leave less than 80px on an axis.

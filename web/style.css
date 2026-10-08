@@ -446,7 +446,7 @@ a:focus-visible,
 #steps-drawer {
   position: absolute;
   right: 16px;
-  bottom: 16px;
+  bottom: 40px; /* clear of the map attribution in the corner */
   width: 320px;
   max-height: 62vh;
   background: var(--panel);
