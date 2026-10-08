@@ -58,6 +58,23 @@ or not.
    **Re-center** appears after you pan the map. **End ride** goes back to
    the overview.
 
+On a phone, with the real San Francisco data: the empty state, tapping the
+map in Dolores Park, a scooter route from the Ferry Building to Mission
+Dolores Park, and ride mode about a third of the way along Howard Street.
+
+<p>
+  <img src="docs/ux/phone-1-empty.png" width="190" alt="Empty state: the Start row is highlighted, with a prominent Use my location button">
+  <img src="docs/ux/phone-2-pick-popup.png" width="190" alt="Tapping open ground in Dolores Park opens a popup naming the nearest address, with Start here and Go here">
+  <img src="docs/ux/phone-3-route.png" width="190" alt="Ferry Building to Mission Dolores Park: the route along Howard and Mission Streets, framed above the collapsed sheet with the summary, Start ride and Steps">
+  <img src="docs/ux/phone-4-ride.png" width="190" alt="Ride mode on Howard Street: next-turn banner with distance and time to go, heading-up map, Voice / Steps / End ride bar">
+</p>
+
+Desktop (1280×800):
+[empty](docs/ux/desktop-1-empty.png) ·
+[map-click popup](docs/ux/desktop-2-pick-popup.png) ·
+[route](docs/ux/desktop-3-route.png) ·
+[ride mode](docs/ux/desktop-4-ride.png)
+
 ## Why this
 
 Riding an e-bike or e-scooter in San Francisco means asking *"how do I get
