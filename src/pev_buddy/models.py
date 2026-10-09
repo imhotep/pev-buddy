@@ -45,6 +45,16 @@ class GeocodeOut(BaseModel):
     lat: float
 
 
+class ReverseOut(BaseModel):
+    """Display label for a map-picked point: the nearest address, if close."""
+
+    label: str  # "123 Valencia St", "Near 123 Valencia St", or "Dropped pin"
+    address: str | None  # the matched address alone, None if nothing is close
+    distance_m: float | None
+    lon: float
+    lat: float
+
+
 class BikeLinkOut(BaseModel):
     id: str | None
     name: str | None

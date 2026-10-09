@@ -16,12 +16,14 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from . import config
 from .bikelink import BikeLinkStore
-from .geocode import Geocoder
+from .geo import format_distance
+from .geocode import REVERSE_EXACT_M, Geocoder, display_address
 from .graph import RoadGraph
 from .models import (
     BikeLinkOut,
     GeocodeOut,
     PointRef,
+    ReverseOut,
     RouteOut,
     RouteRequest,
     RouteStepOut,
@@ -170,6 +172,25 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             raise HTTPException(503, "data not loaded yet")
         return state.geocoder.search(q, limit=min(max(limit, 1), 25))
 
+    @app.get("/api/reverse", response_model=ReverseOut)
+    def reverse(lat: float, lon: float) -> dict:
+        """Label a map-picked point by its nearest address ("Near 123 Valencia
+        St"), falling back to "Dropped pin" when no address is within range."""
+        if state.geocoder is None:
+            raise HTTPException(503, "data not loaded yet")
+        hit = state.geocoder.reverse(lon, lat)
+        if hit is None:
+            return {"label": "Dropped pin", "address": None, "distance_m": None, "lon": lon, "lat": lat}
+        address = display_address(hit["number"], hit["street"])
+        exact = hit["distance_m"] <= REVERSE_EXACT_M
+        return {
+            "label": address if exact else f"Near {address}",
+            "address": address,
+            "distance_m": round(hit["distance_m"], 1),
+            "lon": lon,
+            "lat": lat,
+        }
+
     @app.get("/api/search", response_model=list[SearchItem])
     def search(q: str, limit: int = 8) -> list[dict]:
         """Unified start/destination search: addresses, places/POIs, stations, BikeLink lockers."""
@@ -291,28 +312,28 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         graph = state.graph
         try:
             slon, slat, slabel = resolve_point(req.start, "start")
-            elon, eval, elabel = resolve_point(req.end, "end")
-            result = find_route(graph, slon, slat, elon, eval, vehicle=vehicle)
+            elon, elat, elabel = resolve_point(req.end, "end")
+            result = find_route(graph, slon, slat, elon, elat, vehicle=vehicle)
         except HTTPException:
             raise
         except RouteError as e:
             raise HTTPException(400, str(e))
         warnings = []
         if result.start_snap_m > 50:
-            warnings.append(f"start snapped {result.start_snap_m:.0f} m to the nearest junction")
+            warnings.append(f"start snapped {format_distance(result.start_snap_m)} to the nearest junction")
         if result.end_snap_m > 50:
-            warnings.append(f"destination snapped {result.end_snap_m:.0f} m to the nearest junction")
+            warnings.append(f"destination snapped {format_distance(result.end_snap_m)} to the nearest junction")
         stats = result.segment_stats
         sidewalk = stats.get("sidewalk")
         if sidewalk and sidewalk["distance_m"]:
             warnings.append(
-                f"route includes {sidewalk['distance_m']:.0f} m of sidewalk — walk your vehicle where riding is prohibited"
+                f"route includes {format_distance(sidewalk['distance_m'])} of sidewalk — walk your vehicle where riding is prohibited"
             )
         arterial = stats.get("arterial")
         if arterial and arterial["distance_m"]:
             mph = f" (up to {arterial['max_speed_mph']} mph posted)" if arterial["max_speed_mph"] else ""
             warnings.append(
-                f"route uses {arterial['distance_m']:.0f} m of fast arterial street{mph} — share the road with care"
+                f"route uses {format_distance(arterial['distance_m'])} of fast arterial street{mph} — share the road with care"
             )
         if vehicle == "moped":
             bike_lane = stats.get("bike_lane")
@@ -325,9 +346,9 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         )
         if result.distance_m and shared_m > max(200.0, 0.3 * result.distance_m):
             warnings.append(
-                f"route shares the roadway with car traffic for {shared_m:.0f} m — ride alert"
+                f"route shares the roadway with car traffic for {format_distance(shared_m)} — ride alert"
             )
-        steps = build_steps(graph, result.edge_idxs, elabel)
+        steps = build_steps(graph, result.edge_idxs, elabel, vehicle=vehicle)
         return {
             "path": result.path,
             "distance_m": round(result.distance_m, 1),

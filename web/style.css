@@ -107,7 +107,22 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 #search-results .result small { display: block; color: var(--muted); margin-top: 2px; }
 
 #trip { padding: 4px 16px 12px; border-bottom: 1px solid var(--border); }
-.trip-row { display: flex; gap: 10px; padding: 8px 0; align-items: flex-start; }
+.trip-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  margin: 0 -8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  align-items: flex-start;
+}
+/* Empty state: the next endpoint to fill in (Start first) stands out. */
+.trip-row.needs-input {
+  border-color: rgba(53, 208, 127, 0.55);
+  background: rgba(53, 208, 127, 0.08);
+}
+.trip-row.needs-input .trip-value { color: var(--text); }
+.trip-labels { min-width: 0; }
 .dot {
   width: 12px; height: 12px; border-radius: 50%;
   margin-top: 4px; flex: none;
@@ -127,6 +142,45 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
   cursor: pointer;
 }
 .mini:hover { border-color: var(--accent); }
+.mini:disabled { opacity: 0.6; cursor: progress; }
+/* The quickest way to set a start on a phone — make it look like one. */
+.mini.locate {
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Start/destination map pins: a 44px grab area around a visible dot. */
+.endpoint-pin {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+.endpoint-pin::after {
+  content: "";
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid #101820;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.endpoint-pin.start::after { background: var(--accent); }
+.endpoint-pin.end::after { background: var(--route); }
+.endpoint-pin:active { cursor: grabbing; }
+.endpoint-pin:active::after { transform: scale(1.25); }
+
+.trip-status {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.trip-status.error { color: var(--route); }
 
 .vehicle-select {
   width: 100%;
@@ -153,21 +207,24 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
   margin: 10px auto 0;
 }
 
-#show-steps {
-  position: fixed;
-  top: 56px;
-  right: 12px;
-  z-index: 15;
-  font-size: 12.5px;
-  padding: 7px 11px;
-  border-radius: 7px;
+button.secondary {
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--panel-2);
   color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
-#show-steps:hover { border-color: var(--accent); }
+button.secondary:hover { border-color: var(--accent); }
+button.secondary[aria-expanded="true"] { border-color: var(--accent); }
+
+.route-from { color: var(--muted); }
+
+/* Phone-only control that collapses/expands the bottom sheet. */
+.sheet-toggle { display: none; }
 
 #route-summary {
   margin-top: 8px;
@@ -193,15 +250,79 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
 
 .hidden { display: none !important; }
 
-/* While navigating on mobile, the panel tucks away and this is the way out. */
-#cancel-route {
+/* ------------------------------------------------------------ ride mode */
+
+.route-actions { display: flex; gap: 8px; margin-top: 10px; }
+button.primary {
+  flex: 1;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #0c2318;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+}
+button.primary:hover { filter: brightness(1.1); }
+
+#ride-banner,
+#ride-controls { display: none; }
+body.riding #ride-banner { display: block; }
+body.riding #ride-controls { display: flex; }
+/* The desktop sidebar stays up during a ride; End ride lives in the ride bar. */
+body.riding #start-ride { display: none; }
+
+#ride-banner {
   position: fixed;
-  left: 50%;
-  bottom: max(20px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  z-index: 25;
-  padding: 12px 22px;
-  border-radius: 999px;
+  top: 12px;
+  left: calc(360px + 12px);
+  right: 60px; /* clear of MapLibre's top-right controls */
+  max-width: 560px;
+  z-index: 22;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #14532d;
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.ride-next { display: flex; align-items: center; gap: 14px; }
+.ride-arrow { flex: none; width: 52px; height: 52px; fill: #fff; }
+.ride-arrow path { transform-origin: 24px 24px; transition: transform 0.2s; }
+.ride-arrow .pin { display: none; }
+.ride-arrow[data-maneuver="slight_right"] .arrow { transform: rotate(45deg); }
+.ride-arrow[data-maneuver="right"] .arrow { transform: rotate(90deg); }
+.ride-arrow[data-maneuver="slight_left"] .arrow { transform: rotate(-45deg); }
+.ride-arrow[data-maneuver="left"] .arrow { transform: rotate(-90deg); }
+.ride-arrow[data-maneuver="uturn"] .arrow { transform: rotate(180deg); }
+.ride-arrow[data-maneuver="arrive"] .arrow { display: none; }
+.ride-arrow[data-maneuver="arrive"] .pin { display: inline; }
+.ride-text { min-width: 0; }
+.ride-distance { font-size: 30px; font-weight: 800; line-height: 1.1; }
+.ride-instruction { font-size: 18px; font-weight: 600; line-height: 1.3; margin-top: 2px; }
+.ride-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.ride-status { color: #ffe08a; font-weight: 600; }
+#ride-banner[data-state="arrived"] .ride-meta { display: none; }
+
+#ride-controls {
+  position: fixed;
+  left: calc(360px + 16px);
+  bottom: 16px;
+  z-index: 22;
+  gap: 8px;
+}
+#ride-controls button {
+  min-height: 48px;
+  padding: 10px 16px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
@@ -210,7 +331,37 @@ h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
   cursor: pointer;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
-#cancel-route:hover { border-color: var(--route); }
+#ride-controls button:hover { border-color: var(--accent); }
+#ride-mute[aria-pressed="false"] { color: var(--muted); }
+#ride-controls .end { background: #7f1d1d; border-color: #7f1d1d; color: #fff; }
+
+/* While riding, the rider puck replaces MapLibre's location dot/button. */
+body.riding .maplibregl-ctrl-geolocate,
+body.riding .maplibregl-user-location-dot,
+body.riding .maplibregl-user-location-accuracy-circle { display: none; }
+
+.rider-puck {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #4da3ff;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 7px rgba(77, 163, 255, 0.25), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+/* Heading wedge; the marker rotates with the rider's heading. */
+.rider-puck::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -15px;
+  transform: translateX(-50%);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 11px solid #4da3ff;
+}
+
+#steps li.current { background: #2b2a1c; box-shadow: inset 3px 0 0 var(--route); }
 
 /* First-visit intro modal */
 #welcome-modal {
@@ -295,7 +446,7 @@ a:focus-visible,
 #steps-drawer {
   position: absolute;
   right: 16px;
-  bottom: 16px;
+  bottom: 40px; /* clear of the map attribution in the corner */
   width: 320px;
   max-height: 62vh;
   background: var(--panel);
@@ -386,35 +537,110 @@ a:focus-visible,
   text-decoration: none;
 }
 .bubble-link:hover { text-decoration: underline; }
+.bubble.pick .bubble-title { margin-bottom: 0; }
+.bubble-actions { display: flex; gap: 8px; margin-top: 10px; }
+.bubble-start,
 .bubble-route {
-  margin-top: 10px;
-  width: 100%;
+  flex: 1;
+  min-height: 40px;
   padding: 8px 10px;
-  border: none;
   border-radius: 7px;
-  background: var(--accent);
-  color: #0c2318;
   font-weight: 700;
   font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
 }
+.bubble-start {
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+.bubble-route {
+  border: 1px solid var(--route);
+  background: var(--route);
+  color: #1a1a1a;
+}
+.bubble-start:hover,
 .bubble-route:hover { filter: brightness(1.1); }
-.bubble-route:disabled { opacity: 0.5; cursor: wait; }
 
 @media (prefers-reduced-motion: reduce) {
   #map-loading .spinner { animation: none; }
+  .ride-arrow path { transition: none; }
 }
 
 @media (max-width: 760px) {
   #map { inset: 0; }
   #map-loading { inset: 0 0 54vh 0; }
   #sidebar { width: 100%; height: 46vh; top: auto; border-right: none; border-top: 1px solid var(--border); }
-  #steps-drawer { width: calc(100% - 32px); }
-  #show-steps { top: calc(46vh + 52px); }
+  /* Every line counts in the sheet: the tagline repeats the welcome modal,
+     and dropping it brings the Start row into view. */
+  .tagline { display: none; }
+  #sidebar header { padding: 12px 16px 8px; }
 
-  /* Navigation mode: full-screen map, steps toggle up top, drawer lifted
-     clear of the cancel button. */
-  body.navigating #sidebar { display: none; }
-  body.navigating #show-steps { top: 12px; right: 12px; }
-  body.navigating #steps-drawer { bottom: 84px; }
+  /* The steps drawer and MapLibre's bottom corner controls sit above the
+     sheet instead of underneath it. */
+  #steps-drawer {
+    width: calc(100% - 32px);
+    bottom: calc(var(--sheet-edge, 0px) + 8px);
+    max-height: calc(100% - var(--sheet-edge, 0px) - 72px);
+  }
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-bottom-left { bottom: var(--sheet-edge, 0px); }
+
+  /* Comfortable tap targets (44px) for everything in the sheet. */
+  #search, .vehicle-select { min-height: 44px; font-size: 16px; }
+  .mini, #steps-close, #search-results .result button { min-height: 44px; padding: 10px 14px; font-size: 14px; }
+  #steps li { min-height: 44px; align-items: center; }
+  #welcome-close { min-height: 44px; }
+  .maplibregl-popup-close-button { width: 36px; height: 36px; font-size: 22px; }
+  .bubble-start, .bubble-route { min-height: 44px; }
+
+  /* Collapsed sheet (a route is up): only the route summary and actions,
+     so the route itself stays in view. */
+  .sheet-toggle {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  body.sheet-collapsed #sidebar { height: auto; max-height: 50vh; }
+  body.sheet-collapsed #sidebar header,
+  body.sheet-collapsed #sidebar .search,
+  body.sheet-collapsed #sidebar footer,
+  body.sheet-collapsed #trip > :not(#route-summary):not(#route-actions),
+  body.sheet-collapsed .route-from { display: none; }
+  body.sheet-collapsed #trip { padding-top: 10px; border-bottom: none; }
+  body.sheet-collapsed #route-summary { margin-top: 0; }
+  body.sheet-collapsed #route-actions { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
+
+  /* Ride mode: full-screen map between a top banner and a bottom control
+     bar; MapLibre's corner controls and the steps drawer step clear of both. */
+  body.riding #sidebar { display: none; }
+  #ride-banner {
+    left: 8px;
+    right: 8px;
+    top: max(8px, env(safe-area-inset-top));
+    max-width: none;
+  }
+  .ride-distance { font-size: 26px; }
+  .ride-instruction { font-size: 17px; }
+  #ride-controls {
+    left: 8px;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  #ride-controls button { flex: 1; padding: 10px 8px; }
+  body.riding .maplibregl-ctrl-top-right { top: var(--ride-banner-edge, 0px); }
+  body.riding .maplibregl-ctrl-bottom-right,
+  body.riding .maplibregl-ctrl-bottom-left { bottom: var(--ride-controls-edge, 0px); }
+  body.riding #steps-drawer {
+    bottom: calc(var(--ride-controls-edge, 0px) + 8px);
+    max-height: calc(100% - var(--ride-controls-edge, 0px) - var(--ride-banner-edge, 0px) - 24px);
+  }
 }
