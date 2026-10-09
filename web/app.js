@@ -903,8 +903,9 @@ function storageSet(key, value) {
 
 const RIDE = Object.freeze({
   OFF_ROUTE_M: 40, // farther than this from the route line is "off route"...
-  OFF_ROUTE_FIXES: 3, // ...for this many fixes in a row triggers a reroute
-  MAX_ACCURACY_M: 50, // vaguer fixes neither count toward nor reset off-route
+  OFF_ROUTE_FIXES: 3, // ...for this many fixes in a row triggers a reroute,
+  OFF_ROUTE_MS: 5000, // ...as does staying off route this long (GPS sends few fixes when still)
+  MAX_ACCURACY_M: 50, // vaguer fixes count only when off route even at their worst
   PASSED_M: 8, // a maneuver is done once the rider is this far past it
   ARRIVE_M: 20, // this close to the route's end counts as arrived
   FAR_PROMPT_M: 152, // ~500 ft: "In 500 feet, turn right onto…"
@@ -1010,10 +1011,21 @@ function secondsToGo(steps, along) {
 }
 
 // Consecutive-fix counter for off-route detection: a fix far from the line
-// counts up, a fix on it resets, and a fix too vague to judge changes nothing.
+// counts up and a fix on it resets. A vague fix counts up only when it is off
+// route even allowing for its error; otherwise it changes nothing.
 function offRouteCount(count, distance, accuracy) {
-  if (accuracy > RIDE.MAX_ACCURACY_M) return count;
+  if (accuracy > RIDE.MAX_ACCURACY_M) {
+    return distance - accuracy > RIDE.OFF_ROUTE_M ? count + 1 : count;
+  }
   return distance > RIDE.OFF_ROUTE_M ? count + 1 : 0;
+}
+
+// Reroute after enough off-route fixes in a row, or once the rider has been
+// off route long enough: phones send few fixes when the rider stops, so a
+// fix count alone can stall.
+function shouldReroute(count, offSince, now) {
+  if (count >= RIDE.OFF_ROUTE_FIXES) return true;
+  return count > 0 && offSince !== null && now - offSince >= RIDE.OFF_ROUTE_MS;
 }
 
 // Which voice prompt is due for the next maneuver given how many have been
@@ -1068,6 +1080,9 @@ const ride = {
   spoken: 0, // voice prompts given for that step (see promptLevel)
   along: 0, // rider's progress along the route, meters
   offCount: 0,
+  offSince: null, // performance.now() of the first fix in the off-route run
+  offAt: null, // latest off-route position, [lon, lat]
+  offTimer: null, // re-checks off-route when no new fix arrives
   rerouting: false,
   position: null, // last rider position shown, [lon, lat]
   heading: null,
@@ -1135,6 +1150,7 @@ function loadRideRoute(route) {
   ride.spoken = 0;
   ride.along = 0;
   ride.offCount = 0;
+  clearOffRoute();
   ride.rerouting = false;
   ride.arrived = false;
   renderRideBanner();
@@ -1149,6 +1165,7 @@ function loadRideRoute(route) {
 function endRide() {
   if (!ride.active) return;
   stopRideTracking();
+  clearOffRoute();
   ride.active = false;
   ride.arrived = false;
   ride.position = null;
@@ -1188,12 +1205,36 @@ function onRideFix(pos) {
   followRider();
 
   ride.offCount = offRouteCount(ride.offCount, snap.distance, coords.accuracy);
-  if (ride.offCount >= RIDE.OFF_ROUTE_FIXES) {
+  if (ride.offCount === 0) {
+    clearOffRoute();
+  } else {
+    ride.offAt = here;
+    if (ride.offSince === null) {
+      ride.offSince = performance.now();
+      ride.offTimer = setTimeout(checkOffRoute, RIDE.OFF_ROUTE_MS + 50);
+    }
+  }
+  if (shouldReroute(ride.offCount, ride.offSince, performance.now())) {
     rerouteFrom(here);
     return;
   }
   if (!ride.rerouting) setRideStatus("");
   advanceRide();
+}
+
+// The off-route timer fired: the rider is still off route (no fix since put
+// them back on it), so reroute from where they were last seen.
+function checkOffRoute() {
+  ride.offTimer = null;
+  if (!ride.active || ride.arrived || !ride.offAt) return;
+  if (shouldReroute(ride.offCount, ride.offSince, performance.now())) rerouteFrom(ride.offAt);
+}
+
+function clearOffRoute() {
+  clearTimeout(ride.offTimer);
+  ride.offTimer = null;
+  ride.offSince = null;
+  ride.offAt = null;
 }
 
 function onRideError(err) {
@@ -1237,9 +1278,10 @@ function arrive() {
   document.getElementById("ride-instruction").textContent = `You've arrived at ${dest}.`;
 }
 
-// Off route for several fixes: route again from where the rider is now.
+// Off route for several fixes or seconds: route again from where the rider is now.
 function rerouteFrom([lon, lat]) {
   ride.offCount = 0;
+  clearOffRoute();
   if (ride.rerouting) return;
   ride.rerouting = true;
   setRideStatus("Off route — rerouting…");

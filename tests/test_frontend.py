@@ -437,7 +437,8 @@ def test_ride_logic_pure_functions(page):
               nextManeuver([0, 200, 300], 210, 1),
               nextManeuver([0, 200, 300], 150, 2), // jitter backwards: stays on 2
             ],
-            off: [offRouteCount(0, 60, 5), offRouteCount(2, 60, 5), offRouteCount(2, 10, 5), offRouteCount(2, 60, 200)],
+            off: [offRouteCount(0, 60, 5), offRouteCount(2, 60, 5), offRouteCount(2, 10, 5), offRouteCount(2, 60, 200), offRouteCount(2, 300, 200)],
+            reroute: [shouldReroute(3, null, 0), shouldReroute(1, 0, 4000), shouldReroute(1, 0, 5000), shouldReroute(0, 0, 9000)],
             prompts: [promptLevel(400, 0), promptLevel(140, 0), promptLevel(140, 1), promptLevel(20, 1), promptLevel(20, 0), promptLevel(20, 2)],
             heading: [
               pickHeading({{ speed: 5, heading: 90 }}, 10),
@@ -462,7 +463,8 @@ def test_ride_logic_pure_functions(page):
     assert r["hinted"]["along"] > 200
     assert [round(p) for p in r["positions"]] == [0, 200, 300]
     assert [(n["index"], round(n["distance"])) for n in r["next"]] == [(1, 100), (1, 5), (2, 90), (2, 150)]
-    assert r["off"] == [1, 3, 0, 2]
+    assert r["off"] == [1, 3, 0, 2, 3]  # a vague fix counts only when off route even at its worst
+    assert r["reroute"] == [True, False, True, False]
     assert r["prompts"] == [0, 1, 0, 2, 2, 0]
     assert r["heading"] == [90, 10, None]
     assert r["rotate"] == [False, False, True]
@@ -544,6 +546,33 @@ def test_ride_mode_reroutes_after_consecutive_off_route_fixes(ride_page):
     page.wait_for_function("() => document.getElementById('ride-status').classList.contains('hidden')")
     assert page.evaluate("() => document.body.classList.contains('riding')")
     assert page.text_content("#start-label") == "My location"
+
+
+def test_ride_mode_reroutes_when_off_route_without_new_fixes(ride_page):
+    # A stopped rider (or DevTools' location override) sends one fix and then
+    # nothing: staying off route for OFF_ROUTE_MS still reroutes.
+    page = ride_page
+    route_via_ui(page)
+    page.click("#start-ride")
+    fix_at(page, 0, 0)
+    with page.expect_response("**/api/route", timeout=8000) as resp:
+        fix_at(page, 100, 100)
+    start = resp.value.request.post_data_json["start"]
+    lon, lat = m_to_lonlat(100, 100)
+    assert abs(start["lon"] - lon) < 1e-9 and abs(start["lat"] - lat) < 1e-9
+
+
+def test_ride_mode_back_on_route_cancels_pending_reroute(ride_page):
+    page = ride_page
+    route_via_ui(page)
+    page.click("#start-ride")
+    fix_at(page, 0, 0)
+    route_requests = []
+    page.on("request", lambda r: route_requests.append(r) if "/api/route" in r.url else None)
+    fix_at(page, 100, 100)
+    fix_at(page, 50, 0)  # back on the line before the timer runs out
+    page.wait_for_timeout(5500)
+    assert route_requests == []
 
 
 def test_ride_voice_mute_is_remembered(ride_page):
