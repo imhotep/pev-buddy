@@ -1,13 +1,13 @@
 // PEV Buddy service worker: makes the app installable (PWA) and keeps the app
 // shell + map library/tiles available on flaky connections. API calls and
 // /data GeoJSON are always fetched live — routes and POIs must never be stale.
-const CACHE = "pev-buddy-v33";
+const CACHE = "pev-buddy-v34";
 
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=33",
-  "/app.js?v=33",
+  "/style.css?v=34",
+  "/app.js?v=34",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
