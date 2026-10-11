@@ -686,6 +686,75 @@ def test_phone_portrait_map_pans_vertically_and_stays_near_sf(open_app):
     assert page.evaluate("() => map.getBounds().getEast()") <= -122.32
 
 
+def test_phone_steps_drawer_leaves_the_picked_step_in_view(open_app):
+    # On a phone the drawer sits over the map: it must leave a band of map
+    # above it, and a picked step must be drawn and framed in that band.
+    page = open_app(390, 844, init_scripts=[GEO_AND_SPEECH_MOCK])
+    route_via_ui(page)
+    page.click("#show-steps")
+    # A real route has dozens of steps: pad the list so the drawer is as
+    # tall as its CSS lets it get.
+    page.evaluate(
+        """() => { const ol = document.getElementById('steps');
+             for (let i = 0; i < 40; i++) ol.insertAdjacentHTML('beforeend', '<li>filler step</li>'); }"""
+    )
+    drawer = rect(page, "#steps-drawer")
+    map_box = rect(page, "#map")
+    assert drawer["top"] - map_box["top"] >= (map_box["bottom"] - map_box["top"]) * 0.4, (drawer, map_box)
+
+    page.locator("#steps li").nth(1).click()
+    page.wait_for_timeout(100)
+    page.wait_for_function("() => !map.isMoving()")
+    hl = page.evaluate(
+        """() => {
+          const f = map.querySourceFeatures('pev-step-hl');
+          const s = state.route.steps[state.activeStep];
+          const m = map.getContainer().getBoundingClientRect();
+          const pts = (s.geometry || [s.turn_point]).map((c) => { const p = map.project(c); return [p.x + m.left, p.y + m.top]; });
+          return { drawn: f.length, pts };
+        }"""
+    )
+    assert hl["drawn"] > 0
+    for x, y in hl["pts"]:
+        assert map_box["top"] <= y <= drawer["top"], (y, drawer["top"])
+        assert 0 <= x <= 390
+
+
+def test_phone_end_ride_reachable_with_steps_open_and_a_step_picked(open_app):
+    page = open_app(390, 844, init_scripts=[GEO_AND_SPEECH_MOCK])
+    route_via_ui(page)
+    page.click("#start-ride")
+    fix_at(page, 0, 0)
+    page.click("#ride-steps")
+    page.evaluate(
+        """() => { const ol = document.getElementById('steps');
+             for (let i = 0; i < 40; i++) ol.insertAdjacentHTML('beforeend', '<li>filler step</li>'); }"""
+    )
+    # Mid-ride the camera carries the follow padding: picking a step must
+    # still bring it into the map left between banner and drawer.
+    assert page.evaluate("() => map.getPadding().top") > 0
+    # On a long real route the follow padding is large (the rider sits low
+    # under a tall banner); stand in for it.
+    page.evaluate("() => map.setPadding({ top: 420, right: 0, bottom: 120, left: 0 })")
+    page.locator("#steps li").nth(1).click()
+    page.wait_for_timeout(100)
+    page.wait_for_function("() => !map.isMoving()")
+    top = rect(page, "#ride-banner")["bottom"]
+    bottom = rect(page, "#steps-drawer")["top"]
+    pts = page.evaluate(
+        """() => { const s = state.route.steps[state.activeStep];
+             const m = map.getContainer().getBoundingClientRect();
+             return (s.geometry || [s.turn_point]).map((c) => map.project(c).y + m.top); }"""
+    )
+    for y in pts:
+        assert top <= y <= bottom, (y, top, bottom)
+
+    page.click("#end-ride", timeout=3000)
+    assert page.evaluate("() => ride.active") is False
+    # ...and the drawer gets out of the way of the route overview.
+    assert not page.is_visible("#steps-drawer")
+
+
 def test_phone_route_fit_keeps_both_pins_above_the_sheet(open_app):
     page = open_app(390, 844, is_mobile=True, has_touch=True, device_scale_factor=2)
     # A north-south route (A -> D -> G): its height, not its width, sets the

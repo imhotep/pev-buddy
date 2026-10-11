@@ -1182,6 +1182,8 @@ function endRide() {
   startMarker.setDraggable(true);
   endMarker.setDraggable(true);
   markCurrentStep();
+  // On a phone the drawer would cover the overview the ride returns to.
+  if (SMALL_SCREEN.matches) closeStepsDrawer(false);
   // Back to the north-up overview of the route.
   map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
   if (state.route) frameRoute({ bearing: 0, duration: REDUCED_MOTION ? 0 : 600 });
@@ -1554,6 +1556,10 @@ function fitToPath(path, options = {}) {
   if (!path || !path.length) return;
   const bounds = new maplibregl.LngLatBounds(path[0], path[0]);
   for (const c of path) bounds.extend(c);
+  // fitBounds adds its padding to the camera's own; a ride leaves the camera
+  // padded (the rider sits low on screen), and together they can exceed the
+  // map, which fitBounds answers by not moving at all. Fit from no padding.
+  map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
   map.fitBounds(bounds, { padding: mapPadding(), ...options });
 }
 
