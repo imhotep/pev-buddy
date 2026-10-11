@@ -652,6 +652,21 @@ def framed_route(page):
     )
 
 
+def test_phone_page_itself_never_scrolls(open_app):
+    # iOS gives vertical swipes to a scrollable document, so the map would only
+    # pan sideways: the page must not scroll or rubber-band, in any state.
+    page = open_app(390, 844, init_scripts=[GEO_AND_SPEECH_MOCK])
+    for el in ("document.documentElement", "document.body"):
+        style = page.evaluate(f"() => {{ const s = getComputedStyle({el}); return [s.overflowY, s.overscrollBehaviorY]; }}")
+        assert style == ["hidden", "none"], (el, style)
+    route_via_ui(page)
+    page.click("#start-ride")
+    page.click("#end-ride")
+    page.click("#sheet-toggle")
+    page.click("#reset-route")
+    assert page.evaluate("() => getComputedStyle(document.documentElement).overflowY") == "hidden"
+
+
 def test_phone_route_fit_keeps_both_pins_above_the_sheet(open_app):
     page = open_app(390, 844, is_mobile=True, has_touch=True, device_scale_factor=2)
     # A north-south route (A -> D -> G): its height, not its width, sets the

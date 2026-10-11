@@ -549,7 +549,7 @@ function syncStepsToggle() {
 function openStepsDrawer(moveFocus) {
   document.getElementById("steps-drawer").classList.remove("hidden");
   syncStepsToggle();
-  if (moveFocus) document.getElementById("steps-close").focus();
+  if (moveFocus) document.getElementById("steps-close").focus({ preventScroll: true });
 }
 
 function closeStepsDrawer(moveFocus) {
@@ -559,7 +559,7 @@ function closeStepsDrawer(moveFocus) {
   const toggle = [...document.querySelectorAll('[aria-controls="steps-drawer"]')].find(
     (el) => el.getClientRects().length
   );
-  if (moveFocus && toggle) toggle.focus();
+  if (moveFocus && toggle) toggle.focus({ preventScroll: true });
 }
 
 function toggleStepsDrawer() {

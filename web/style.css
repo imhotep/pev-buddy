@@ -19,6 +19,11 @@ html, body {
   background: var(--bg);
   /* Pinch-zoom belongs to the map, not the page. */
   touch-action: manipulation;
+  /* The page itself never scrolls or rubber-bands: on iOS a scrollable
+     document claims vertical swipes, so the map would only pan sideways.
+     The sheet and drawer scroll on their own. */
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 #map {
