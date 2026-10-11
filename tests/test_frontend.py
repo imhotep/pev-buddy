@@ -667,6 +667,19 @@ def test_phone_page_itself_never_scrolls(open_app):
     assert page.evaluate("() => getComputedStyle(document.documentElement).overflowY") == "hidden"
 
 
+def test_phone_portrait_map_pans_vertically_at_city_zoom(open_app):
+    # A tall portrait map behind the bottom sheet spans all of SF's latitude at
+    # city zoom; the pan limit must leave room to move north/south (and to
+    # drag a southern start pin out from under the sheet).
+    page = open_app(390, 844, init_scripts=[GEO_AND_SPEECH_MOCK])
+    page.evaluate("() => map.jumpTo({ center: [-122.44, 37.765], zoom: 11.6 })")
+    for dy in (300, -300):
+        before = page.evaluate("() => map.getCenter().lat")
+        page.evaluate(f"() => map.panBy([0, {dy}], {{ duration: 0 }})")
+        after = page.evaluate("() => map.getCenter().lat")
+        assert abs(after - before) > 0.01, (dy, before, after)
+
+
 def test_phone_route_fit_keeps_both_pins_above_the_sheet(open_app):
     page = open_app(390, 844, is_mobile=True, has_touch=True, device_scale_factor=2)
     # A north-south route (A -> D -> G): its height, not its width, sets the

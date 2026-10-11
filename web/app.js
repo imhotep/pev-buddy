@@ -11,10 +11,18 @@ const IS_MOBILE = matchMedia("(pointer: coarse)").matches;
 // Phone-sized layout (the sidebar becomes a bottom sheet) — mirrors the
 // max-width breakpoint in style.css.
 const SMALL_SCREEN = matchMedia("(max-width: 760px)");
-// City of San Francisco extent — the map can't pan or zoom out beyond this.
+// City of San Francisco extent: where trips can start and end.
 const SF_BOUNDS = [
   [-122.52, 37.7],
   [-122.35, 37.84],
+];
+// How far the map may pan or zoom out: the city plus a wide margin. Clamping
+// to the city itself froze vertical panning on a portrait phone, whose tall
+// map (running on under the bottom sheet) already spans the city's whole
+// north-south extent at city zoom.
+const MAP_BOUNDS = [
+  [-122.75, 37.55],
+  [-122.12, 37.99],
 ];
 
 const map = new maplibregl.Map({
@@ -22,10 +30,10 @@ const map = new maplibregl.Map({
   style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
   center: SF_CENTER,
   zoom: 12.5,
-  // maxBounds clamps zoom-out at the city's extent; minZoom is kept well below
-  // that so it never overrides the bounds on wide viewports.
+  // maxBounds keeps the map around the city; minZoom is kept well below that
+  // so it never overrides the bounds on wide viewports.
   minZoom: 9,
-  maxBounds: SF_BOUNDS,
+  maxBounds: MAP_BOUNDS,
   attributionControl: false,
 });
 map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
