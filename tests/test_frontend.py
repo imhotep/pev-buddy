@@ -667,17 +667,23 @@ def test_phone_page_itself_never_scrolls(open_app):
     assert page.evaluate("() => getComputedStyle(document.documentElement).overflowY") == "hidden"
 
 
-def test_phone_portrait_map_pans_vertically_at_city_zoom(open_app):
-    # A tall portrait map behind the bottom sheet spans all of SF's latitude at
-    # city zoom; the pan limit must leave room to move north/south (and to
-    # drag a southern start pin out from under the sheet).
+def test_phone_portrait_map_pans_vertically_and_stays_near_sf(open_app):
+    # The map ends at the sheet's top: a canvas running on under the sheet
+    # counted the hidden strip against the pan limit, which then allowed no
+    # north/south panning in portrait at city zoom.
     page = open_app(390, 844, init_scripts=[GEO_AND_SPEECH_MOCK])
-    page.evaluate("() => map.jumpTo({ center: [-122.44, 37.765], zoom: 11.6 })")
-    for dy in (300, -300):
+    assert rect(page, "#map")["bottom"] <= rect(page, "#sidebar")["top"] + 1
+    page.evaluate("() => map.jumpTo({ center: [-122.44, 37.765], zoom: 12 })")
+    for dy in (250, -250):
         before = page.evaluate("() => map.getCenter().lat")
         page.evaluate(f"() => map.panBy([0, {dy}], {{ duration: 0 }})")
         after = page.evaluate("() => map.getCenter().lat")
         assert abs(after - before) > 0.01, (dy, before, after)
+    # ...but a long fling still stops close to the city.
+    page.evaluate("() => map.panBy([0, 20000], { duration: 0 })")
+    assert page.evaluate("() => map.getBounds().getSouth()") >= 37.67
+    page.evaluate("() => map.panBy([20000, 0], { duration: 0 })")
+    assert page.evaluate("() => map.getBounds().getEast()") <= -122.32
 
 
 def test_phone_route_fit_keeps_both_pins_above_the_sheet(open_app):

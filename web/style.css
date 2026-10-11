@@ -583,7 +583,12 @@ a:focus-visible,
 }
 
 @media (max-width: 760px) {
-  #map { inset: 0; }
+  /* The map ends where the bottom sheet starts rather than running on under
+     it: MapLibre counts the whole canvas as visible, so a hidden strip ate
+     into the pan limit (no north/south panning in portrait) and could hide
+     a pin. While riding the sheet is gone and the map is full height. */
+  #map { inset: 0 0 var(--sheet-edge, 0px) 0; }
+  body.riding #map { inset: 0; }
   #map-loading { inset: 0 0 54vh 0; }
   #sidebar { width: 100%; height: 46vh; top: auto; border-right: none; border-top: 1px solid var(--border); }
   /* Every line counts in the sheet: the tagline repeats the welcome modal,
@@ -591,15 +596,12 @@ a:focus-visible,
   .tagline { display: none; }
   #sidebar header { padding: 12px 16px 8px; }
 
-  /* The steps drawer and MapLibre's bottom corner controls sit above the
-     sheet instead of underneath it. */
+  /* The steps drawer sits above the sheet instead of underneath it. */
   #steps-drawer {
     width: calc(100% - 32px);
     bottom: calc(var(--sheet-edge, 0px) + 8px);
     max-height: calc(100% - var(--sheet-edge, 0px) - 72px);
   }
-  .maplibregl-ctrl-bottom-right,
-  .maplibregl-ctrl-bottom-left { bottom: var(--sheet-edge, 0px); }
 
   /* Comfortable tap targets (44px) for everything in the sheet. */
   #search, .vehicle-select { min-height: 44px; font-size: 16px; }

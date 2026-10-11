@@ -16,13 +16,11 @@ const SF_BOUNDS = [
   [-122.52, 37.7],
   [-122.35, 37.84],
 ];
-// How far the map may pan or zoom out: the city plus a wide margin. Clamping
-// to the city itself froze vertical panning on a portrait phone, whose tall
-// map (running on under the bottom sheet) already spans the city's whole
-// north-south extent at city zoom.
+// How far the map may pan or zoom out: the city plus a small margin, so a
+// pin on the city's edge can still be brought away from the screen's edge.
 const MAP_BOUNDS = [
-  [-122.75, 37.55],
-  [-122.12, 37.99],
+  [-122.54, 37.68],
+  [-122.33, 37.86],
 ];
 
 const map = new maplibregl.Map({
@@ -1562,23 +1560,31 @@ function fitToPath(path, options = {}) {
 // The route overview: the whole route and both endpoint pins, clear of the
 // panels over the map. Those panels can still change size after the fit —
 // the phone sheet settling to its collapsed height or wrapping a warning,
-// the steps drawer opening or closing — so the overview is held: whenever
-// the padding they need changes, it is fitted again. It lets go once the
-// camera goes elsewhere (the user pans, a step is picked, a ride starts).
-let framedPadding = null; // padding of the overview being held, as JSON
+// the steps drawer opening or closing — and on a phone the map itself
+// resizes with the sheet; so the overview is held: whenever the map's size or
+// the padding the panels need changes, it is fitted again. It lets go once
+// the camera goes elsewhere (the user pans, a step is picked, a ride starts).
+let framedPadding = null; // map size + padding of the overview being held, as JSON
+
+// The canvas, not the container: MapLibre resizes the canvas a frame after
+// the container, and a fit is computed for the canvas size of its moment.
+function frameKey(padding) {
+  const c = map.getCanvas();
+  return JSON.stringify([c.clientWidth, c.clientHeight, padding]);
+}
 
 function frameRoute(options = {}) {
   if (!state.route) return;
   const points = [...state.route.path];
   for (const ref of [state.startRef, state.endRef]) if (ref) points.push([ref.lon, ref.lat]);
   const padding = mapPadding();
-  framedPadding = JSON.stringify(padding);
+  framedPadding = frameKey(padding);
   fitToPath(points, { padding, ...options });
 }
 
 function keepRouteFramed() {
   if (ride.active) followRider();
-  else if (framedPadding !== null && JSON.stringify(mapPadding()) !== framedPadding) {
+  else if (framedPadding !== null && frameKey(mapPadding()) !== framedPadding) {
     frameRoute({ duration: REDUCED_MOTION ? 0 : 300 });
   }
 }
