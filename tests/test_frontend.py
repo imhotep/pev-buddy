@@ -734,8 +734,12 @@ def test_phone_end_ride_reachable_with_steps_open_and_a_step_picked(open_app):
     # still bring it into the map left between banner and drawer.
     assert page.evaluate("() => map.getPadding().top") > 0
     # On a long real route the follow padding is large (the rider sits low
-    # under a tall banner); stand in for it.
-    page.evaluate("() => map.setPadding({ top: 420, right: 0, bottom: 120, left: 0 })")
+    # under a tall banner), and the camera is usually mid-animation following
+    # the rider: stand in for both.
+    page.evaluate(
+        "() => map.easeTo({ padding: { top: 420, right: 0, bottom: 120, left: 0 }, duration: 5000 })"
+    )
+    page.wait_for_timeout(200)
     page.locator("#steps li").nth(1).click()
     page.wait_for_timeout(100)
     page.wait_for_function("() => !map.isMoving()")

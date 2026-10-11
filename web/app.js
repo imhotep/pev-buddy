@@ -1558,7 +1558,9 @@ function fitToPath(path, options = {}) {
   for (const c of path) bounds.extend(c);
   // fitBounds adds its padding to the camera's own; a ride leaves the camera
   // padded (the rider sits low on screen), and together they can exceed the
-  // map, which fitBounds answers by not moving at all. Fit from no padding.
+  // map, which fitBounds answers by not moving at all. Fit from no padding —
+  // after stopping any camera animation, which would write its padding back.
+  map.stop();
   map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
   map.fitBounds(bounds, { padding: mapPadding(), ...options });
 }
