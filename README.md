@@ -70,6 +70,12 @@ compass heading-up while riding) turns on for any touch screen
 3. Open it and allow **Location** when asked. If you blocked it: tap the
    site-settings icon left of the address → **Permissions → Location → Allow**.
 
+**If "Use my location" can't find you**: the app first asks for a precise
+(GPS) position and, if the device can't get one in time, for an approximate
+one (from Wi-Fi, or a recent fix). If both fail it says what to check:
+Location Services for your browser, and on a Mac, that Wi-Fi is on (a Mac
+has no GPS and locates itself by nearby networks).
+
 **Riding with it**
 
 1. **Pick your vehicle type.** The route follows California law for it.
@@ -80,8 +86,10 @@ compass heading-up while riding) turns on for any touch screen
    destination. To start somewhere else, search or tap the map and choose
    **Start here**. Drag either pin to adjust.
 3. **Optionally park near the destination.** Tap **Charger**, **BikeLink** or
-   **Rack** (**Moto** for mopeds) under the route to ride to the nearest one
-   and walk the rest; tap it again to ride all the way.
+   **Rack** (**Moto** for mopeds) under the route to ride to the nearest one;
+   a dashed line shows the walk from there to your destination along the
+   streets, and the summary says how far and how long ("Then walk 0.2 mi
+   (3 min)"). Tap it again to ride all the way.
 4. **Tap ▶ Start ride** and put the phone in its mount. The banner shows the
    next turn and a live countdown; the voice gives each turn ahead of time and
    again just before it. Guidance advances by itself as you pass each turn,
@@ -95,14 +103,15 @@ compass heading-up while riding) turns on for any touch screen
 On a phone, with the real San Francisco data: the empty state with the start
 already at your location, tapping the map in Dolores Park, a scooter route
 from the Ferry Building to Mission Dolores Park, ride mode on Howard Street,
-parking at a bike rack near the park, and the debug panel.
+parking at a bike rack near the park (with the walk to it), and the debug
+panel.
 
 <p>
   <img src="docs/ux/phone-1-empty.png" width="150" alt="Empty state: the start is My location and the Destination row is highlighted">
   <img src="docs/ux/phone-2-pick-popup.png" width="150" alt="Tapping the map in Dolores Park opens a popup naming the nearest address, with Start here and Go here">
   <img src="docs/ux/phone-3-route.png" width="150" alt="Ferry Building to Mission Dolores Park: the route framed above the collapsed sheet with the summary, climb, park-near tiles, Start ride and Steps">
   <img src="docs/ux/phone-4-ride.png" width="150" alt="Ride mode: next-turn banner with distance and time to go, heading-up map, Voice / Steps / End ride bar">
-  <img src="docs/ux/phone-5-park-near.png" width="150" alt="The Rack tile picked: the route ends at a bike rack and the summary says to walk the rest to Mission Dolores Park">
+  <img src="docs/ux/phone-5-park-near.png" width="150" alt="The Rack tile picked: the route ends at a bike rack and the summary says to walk 0.2 mi (3 min) to Mission Dolores Park">
   <img src="docs/ux/phone-6-debug-panel.png" width="150" alt="The debug panel over ride mode: tool buttons, the live readout and the route's steps">
 </p>
 
@@ -194,9 +203,9 @@ tap from the route.
    `shared` 20–28, `arterial` 28–45. Edge cost is `length_m ×
    cost_profile[category]` (arterial = 3.0× for profile A, 1.6× for B, 1.0×
    for C; bike lanes are 3.0× for mopeds) plus the hill cost below. Effective
-   limits above 45 mph are excluded for every vehicle, as are
-   stairs/bridleways; Overture `access_restrictions` clear heading bits per
-   access mode.
+   limits above 45 mph are excluded for every vehicle, as are bridleways;
+   stairs are in the graph only for walking (below); Overture
+   `access_restrictions` clear heading bits per access mode.
 
    **Effective speed limits.** A posted limit always wins. Overture leaves
    many blocks unposted, so an unposted block first takes the limit of the
@@ -232,7 +241,11 @@ tap from the route.
    destination over the same graph: every street, path, sidewalk and stair,
    in either direction (one-way rules and turn restrictions are for
    vehicles), at 3 mph. Stairs are in the graph only for this: their
-   category, `steps`, is one no vehicle type may ride.
+   category, `steps`, is one no vehicle type may ride, so vehicle routes are
+   unaffected. The search runs junction to junction, so the walk is then cut
+   where it passes closest to the parking spot and to the destination:
+   otherwise a mid-block destination would be walked past to the corner and
+   back.
 
    **Snapping.** A start or destination snaps to the nearest junction the
    vehicle can leave (start) or reach (destination), skipping junctions in a
@@ -258,12 +271,14 @@ tap from the route.
      kinds that fit the selected vehicle (count bubbles zoomed out, colored
      pins zoomed in: amber chargers, blue lockers, violet racks, pink
      motorcycle parking).
-   - **Trip:** unified search for start or destination, tap-the-map "Start
-     here / Go here", draggable pins, GPS, and on phones a start that
-     defaults to your location.
+   - **Trip:** unified search for start or destination (case- and
+     accent-insensitive), tap-the-map "Start here / Go here", draggable pins,
+     GPS (a precise fix, falling back to an approximate one), and on phones a
+     start that defaults to your location.
    - **Park near destination:** the nearest charger / locker / rack (or
      motorcycle parking) to the destination within a mile, computed in the
-     browser from the pins already loaded.
+     browser from the pins already loaded, then the walk from it fetched
+     from `/api/walk` and drawn dashed (a straight line if that fails).
    - **Steps:** a turn-by-turn panel where tapping a step highlights it on the
      map, during a ride too.
    - **Ride mode:** GPS fixes snapped to the route, a next-maneuver banner and
@@ -291,6 +306,22 @@ uvicorn pev_buddy.api:app --reload
 
 To try it on a phone during development, serve it over HTTPS (location and
 compass need a secure origin), e.g. `tailscale serve --bg 8000`.
+
+**Trying a branch before merging.** Each branch can live in its own
+[git worktree](https://git-scm.com/docs/git-worktree) (a second checkout in
+another folder), so it runs without touching your main checkout:
+
+```bash
+git worktree add ../pev-buddy-pr feat/some-branch
+cd ../pev-buddy-pr
+PYTHONPATH=src PEV_BUDDY_DATA=../pev-buddy/data \
+  ../pev-buddy/.venv/bin/uvicorn pev_buddy.api:app --port 8000
+```
+
+`PYTHONPATH=src` makes the shared venv load this checkout's code (its
+installed `pev_buddy` may point at another checkout); `PEV_BUDDY_DATA` reuses
+the main checkout's data. `gh pr checkout <number>` is the alternative when
+switching the main checkout is fine.
 
 **Tests:** `pytest`. The Python suite is offline and synthetic (no network);
 `tests/test_frontend.py` drives the real UI in headless Chrome via Playwright
@@ -356,7 +387,17 @@ installs dependencies (repairing a venv that has no `pip`), uploads `data/`
 with `rsync` (only what changed), restarts the systemd unit, and checks
 `/api/health` on the server and that the public page serves the new build.
 `--rollback` restores the recorded commit and, if that deploy uploaded data,
-its snapshot. A failed step stops the deploy before the restart.
+its snapshot. A failed step stops the deploy before the restart; if the app
+doesn't answer within 30 s of the restart, the script prints the unit's
+`systemctl status` and exits non-zero. All steps share one SSH connection,
+so a Tailscale SSH check or key passphrase is asked for once; the restart
+may ask for your `sudo` password. `--code-only` skips the data upload, but
+the upload is cheap when nothing changed (rsync sends only differences).
+
+`.env` holds `DEPLOY_HOST` (a hostname or `~/.ssh/config` alias),
+`DEPLOY_USER`, `DEPLOY_APP_DIR`, `DEPLOY_REF`, `DEPLOY_SERVICE`,
+`DEPLOY_APP_PORT`, `DEPLOY_PUBLIC_URL`, `DEPLOY_DATA_DIR` and
+`DEPLOY_KEEP_BACKUPS`; `.env.sample` documents each.
 
 ### Self-host behind Tailscale
 
@@ -383,8 +424,8 @@ looks the way it does.
   quiet, shared, arterial) and climb instead of forbidden outright, so a
   destination walled in by fast roads still gets a route, with a visible
   warning, rather than a dead "no route" error. Only what a vehicle may not
-  legally ride, and genuinely unridden classes (stairs, bridleways,
-  > 45 mph), are excluded.
+  legally ride, and genuinely unridden classes (bridleways, > 45 mph) are
+  excluded; stairs are kept for walking only.
 - **One union graph + per-vehicle bitmaps.** All routable vehicle types share
   a single directed graph; legality per type is a 1-byte bitmap per edge
   computed at build time. No per-vehicle graphs, no runtime rule evaluation.
@@ -425,6 +466,9 @@ measurement-driven verification are mine.
 - **Parking is the nearest, not the best.** Park-near picks the nearest spot
   of a kind by straight-line distance within a mile; it doesn't weigh space
   counts or which side of the street the destination is on.
+- **Walks follow the street network, not sidewalks and crosswalks.** A walk
+  runs along street centrelines and mapped paths and stairs; it doesn't know
+  which side has a sidewalk or where to cross.
 - **Speed limits are inferred when unposted** (see "Effective speed limits"),
   and mode-scoped limits (e.g. hgv-only) are ignored.
 - **Turns are geometry-derived.** Instructions come from bearings between
