@@ -289,6 +289,17 @@ def test_debug_panel_drags_stays_on_screen_and_remembers(page):
     page.wait_for_selector("#pev-debug-hud")
     again = rect(page, "#pev-debug-hud")
     assert abs(again["left"] - box["left"]) < 2 and abs(again["top"] - box["top"]) < 2
+    # Minimized it can still be moved: the grip stays next to the bug button.
+    page.click("#pev-debug-hud .pev-dbg-min")
+    assert page.is_visible("#pev-debug-hud .pev-dbg-grip")
+    assert not page.is_visible("#pev-debug-hud .pev-dbg-readout")
+    g = grip.bounding_box()
+    page.mouse.move(g["x"] + 5, g["y"] + 5)
+    page.mouse.down()
+    page.mouse.move(60, 300, steps=6)
+    page.mouse.up()
+    small = rect(page, "#pev-debug-hud")
+    assert small["left"] < 100 and 250 < small["top"] < 350, small
     page.evaluate("() => pev.hud(false)")
 
 

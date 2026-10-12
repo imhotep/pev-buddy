@@ -310,8 +310,8 @@ handlers, the last touch gesture and whether the map or iOS took it, recent
 camera calls and who made them, the last console warning) and buttons for
 **Drive** (with a speed box), **Stop**, **Route**, **State**, **Copy** (the
 readout and the last result, to paste into a bug report), **Reset app**,
-minimize (🐞) and close. Drag the **⠿** grip to move it out of the way; it
-stays on screen and keeps its place across reloads.
+minimize (🐞) and close. Drag the **⠿** grip to move it out of the way, minimized
+too; it stays on screen and keeps its place across reloads.
 
 ## Deploy
 

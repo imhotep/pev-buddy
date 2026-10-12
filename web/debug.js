@@ -50,15 +50,16 @@
   // ------------------------------------------------------------------ HUD
 
   // The panel: a toolbar of the console tools, the live readout, and an
-  // output box for what the tools return. Minimized, only the toolbar's
-  // expand button stays, out of the map's way.
+  // output box for what the tools return. Minimized, only the grip and the
+  // expand button stay, so it can still be moved out of the map's way.
   const PANEL_CSS = `
 #pev-debug-hud { position: fixed; left: 4px; top: calc(env(safe-area-inset-top) + 4px); z-index: 99999;
   width: min(92vw, 430px); max-height: 70vh; display: flex; flex-direction: column; gap: 4px; padding: 6px;
   background: rgba(0, 0, 0, 0.88); color: #7f7; font: 10px/1.3 ui-monospace, Menlo, monospace;
   border: 1px solid #2f4f2f; border-radius: 8px; }
 #pev-debug-hud.min { width: auto; }
-#pev-debug-hud.min > :not(.pev-dbg-bar), #pev-debug-hud.min .pev-dbg-bar > :not(.pev-dbg-min) { display: none; }
+#pev-debug-hud.min > :not(.pev-dbg-bar),
+#pev-debug-hud.min .pev-dbg-bar > :not(.pev-dbg-min):not(.pev-dbg-grip) { display: none; }
 #pev-debug-hud .pev-dbg-bar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 #pev-debug-hud button, #pev-debug-hud input { font: 11px ui-monospace, Menlo, monospace; color: #cfe; background: #12261a;
   border: 1px solid #2f5f3f; border-radius: 5px; padding: 4px 7px; min-height: 28px; }
