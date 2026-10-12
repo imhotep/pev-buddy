@@ -15,14 +15,22 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <!-- style.css comes after maplibre-gl.css so our popup overrides win at equal specificity -->
-  <link rel="stylesheet" href="style.css?v=50" />
+  <link rel="stylesheet" href="style.css?v=51" />
 </head>
 <body>
   <aside id="sidebar">
     <!-- Phones only: collapses/expands the bottom sheet once a route is up -->
     <button id="sheet-toggle" class="sheet-toggle hidden" aria-expanded="true">Show map</button>
     <header>
-      <h1>PEV Buddy</h1>
+      <h1>
+        <!-- Kick scooter: deck, stem and handlebar, two wheels. -->
+        <svg class="brand-icon" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
+          <path d="M22 3h4M24 3l-3 15H8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="7" cy="19" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/>
+          <circle cx="25" cy="19" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/>
+        </svg>
+        PEV Buddy
+      </h1>
       <p class="tagline">Turn-by-turn navigation for e-bikes, e-scooters &amp; mopeds in San Francisco — with chargers, lockers &amp; racks on the map.</p>
     </header>
 
@@ -126,8 +134,8 @@
     </div>
     <ol id="steps"></ol>
   </div>
-  <script src="app.js?v=50"></script>
+  <script src="app.js?v=51"></script>
   <!-- Console developer tools (pev.help()); idle until called. -->
-  <script src="debug.js?v=50"></script>
+  <script src="debug.js?v=51"></script>
 </body>
 </html>
