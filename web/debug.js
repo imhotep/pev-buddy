@@ -1,11 +1,13 @@
 // PEV Buddy developer tools, for the browser console (on a phone: Safari
 // Web Inspector). Nothing here runs until called; `pev.help()` lists it all.
 //
-//   pev.hud()            toggle an on-screen readout: viewport/scroll, map
-//                        gesture handling, the last touch gesture, recent
-//                        camera calls and console warnings. Remembered
-//                        across reloads (localStorage), so it also works in
-//                        the installed app, which has no URL bar.
+//   pev.hud()            toggle the on-screen debug panel: a live readout
+//                        (viewport/scroll, map gesture handling, the last
+//                        touch gesture, recent camera calls, console
+//                        warnings) and buttons for the tools below, with
+//                        their results shown in the panel and a Copy button,
+//                        since a phone has no console. Remembered across
+//                        reloads (localStorage).
 //   pev.route()          the current route: summary plus a steps table
 //   pev.fix(lat, lon)    feed ride mode one GPS fix (as if the phone moved)
 //   pev.drive(mph)       ride the current route with simulated fixes;
@@ -14,7 +16,8 @@
 //   pev.resetApp()       drop the service worker + caches and reload (when
 //                        a phone is stuck on an old build)
 //
-// Adding `?debug` to the URL turns the HUD on as well.
+// No console at hand (a phone, the installed app)? Tap the "PEV Buddy" title
+// five times, or add `?debug` to the URL.
 (() => {
   const HUD_KEY = "pev-debug-hud";
   const store = {
@@ -46,16 +49,108 @@
 
   // ------------------------------------------------------------------ HUD
 
+  // The panel: a toolbar of the console tools, the live readout, and an
+  // output box for what the tools return. Minimized, only the toolbar's
+  // expand button stays, out of the map's way.
+  const PANEL_CSS = `
+#pev-debug-hud { position: fixed; left: 4px; top: calc(env(safe-area-inset-top) + 4px); z-index: 99999;
+  width: min(92vw, 430px); max-height: 70vh; display: flex; flex-direction: column; gap: 4px; padding: 6px;
+  background: rgba(0, 0, 0, 0.88); color: #7f7; font: 10px/1.3 ui-monospace, Menlo, monospace;
+  border: 1px solid #2f4f2f; border-radius: 8px; }
+#pev-debug-hud.min { width: auto; }
+#pev-debug-hud.min > :not(.pev-dbg-bar), #pev-debug-hud.min .pev-dbg-bar > :not(.pev-dbg-min) { display: none; }
+#pev-debug-hud .pev-dbg-bar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+#pev-debug-hud button, #pev-debug-hud input { font: 11px ui-monospace, Menlo, monospace; color: #cfe; background: #12261a;
+  border: 1px solid #2f5f3f; border-radius: 5px; padding: 4px 7px; min-height: 28px; }
+#pev-debug-hud input { width: 3.2em; padding: 4px; }
+#pev-debug-hud button:active { background: #234; }
+#pev-debug-hud pre { margin: 0; white-space: pre-wrap; overflow: auto; }
+#pev-debug-hud .pev-dbg-out { color: #cde; border-top: 1px solid #2f4f2f; padding-top: 4px; max-height: 32vh; }
+#pev-debug-hud .pev-dbg-readout { pointer-events: none; }`;
+
+  let output = null; // the panel's output box
+  function show(title, value) {
+    const text = typeof value === "string" ? value : JSON.stringify(value, null, 1);
+    if (output) {
+      output.textContent = `${title}\n${text}`;
+      output.hidden = false;
+    }
+    return value;
+  }
+
+  function buildPanel() {
+    if (!document.getElementById("pev-debug-css")) {
+      const style = document.createElement("style");
+      style.id = "pev-debug-css";
+      style.textContent = PANEL_CSS;
+      document.head.appendChild(style);
+    }
+    const panel = document.createElement("div");
+    panel.id = "pev-debug-hud";
+    panel.setAttribute("role", "region");
+    panel.setAttribute("aria-label", "Debug panel");
+    const bar = document.createElement("div");
+    bar.className = "pev-dbg-bar";
+    const button = (label, title, fn, cls) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.title = title;
+      if (cls) b.className = cls;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        fn();
+      });
+      bar.appendChild(b);
+      return b;
+    };
+    const mph = document.createElement("input");
+    mph.type = "number";
+    mph.min = "1";
+    mph.max = "200";
+    mph.value = "12";
+    mph.title = "Simulated speed (mph)";
+    mph.setAttribute("aria-label", "Simulated speed in mph");
+    button("🐞", "Minimize / expand the panel", () => panel.classList.toggle("min"), "pev-dbg-min");
+    button("▶ Drive", "Ride the current route with simulated GPS", () => show("drive", drive(Number(mph.value) || 12)));
+    bar.appendChild(mph);
+    button("■ Stop", "Stop the simulated drive", () => show("stop", stop() || "Stopped."));
+    button("Route", "Current route summary and steps", () => show("route", route(true)));
+    button("State", "App, ride and camera snapshot", () => show("state", snapshot()));
+    button("Copy", "Copy the readout and the last result", () => copy(panel));
+    button("Reset app", "Drop the service worker and caches, then reload", () => resetApp());
+    button("✕", "Close the panel", () => window.pev.hud(false));
+    const readout = document.createElement("pre");
+    readout.className = "pev-dbg-readout";
+    output = document.createElement("pre");
+    output.className = "pev-dbg-out";
+    output.hidden = true;
+    panel.append(bar, readout, output);
+    document.body.appendChild(panel);
+    return { panel, readout };
+  }
+
+  async function copy(panel) {
+    const text = [...panel.querySelectorAll("pre")].filter((p) => !p.hidden).map((p) => p.textContent).join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      show("copy", "Copied the readout and the last result.");
+    } catch {
+      // No clipboard (http, or permission): leave it selected to copy by hand.
+      const range = document.createRange();
+      range.selectNodeContents(panel.querySelector(".pev-dbg-readout"));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      show("copy", "Clipboard unavailable: the readout is selected, copy it by hand.");
+    }
+  }
+
   let hud = null; // { el, timer, undo: [] }
 
   function startHud() {
     if (hud) return;
-    const el = document.createElement("pre");
-    el.id = "pev-debug-hud";
-    el.style.cssText =
-      "position:fixed;left:4px;top:calc(env(safe-area-inset-top) + 4px);z-index:99999;margin:0;padding:6px;" +
-      "background:rgba(0,0,0,.85);color:#7f7;font:10px/1.3 monospace;pointer-events:none;max-width:75vw;white-space:pre-wrap";
-    document.body.appendChild(el);
+    const { panel, readout } = buildPanel();
+    const el = readout;
     const undo = [];
     const listen = (target, type, fn, opts) => {
       target.addEventListener(type, fn, opts);
@@ -142,7 +237,7 @@
         ...calls.map((c) => "  " + c),
       ].join("\n");
     };
-    hud = { el, timer: setInterval(paint, 300), undo };
+    hud = { el: panel, timer: setInterval(paint, 300), undo };
     paint();
   }
 
@@ -152,6 +247,7 @@
     hud.undo.forEach((f) => f());
     hud.el.remove();
     hud = null;
+    output = null;
   }
 
   // ------------------------------------------------------------ GPS sim
@@ -213,13 +309,14 @@
 
   // ------------------------------------------------------------- the rest
 
-  function route() {
+  function route(forPanel = false) {
     const r = state.route;
     if (!r) return "No route.";
     console.table(
       r.steps.map((s) => ({ step: s.index, instruction: s.instruction, ft: Math.round((s.distance_m || 0) * 3.28084), s: s.duration_s }))
     );
     return {
+      ...(forPanel ? { steps: r.steps.map((s) => `${s.index}. ${s.instruction} (${Math.round((s.distance_m || 0) * 3.28084)} ft)`) } : {}),
       miles: +(r.distance_m / 1609.344).toFixed(2),
       minutes: Math.round(r.duration_s / 60),
       climb_ft: Math.round((r.climb_m || 0) * 3.28084),
@@ -256,7 +353,7 @@
   function help() {
     console.log(
       [
-        "pev.hud()           toggle the on-screen debug readout (remembered)",
+        "pev.hud()           toggle the on-screen debug panel (remembered); or tap the title 5x",
         "pev.route()         current route summary + steps table",
         "pev.fix(lat, lon)   feed ride mode one GPS fix",
         "pev.drive(mph=12)   ride the current route with simulated GPS; pev.stop() ends it",
@@ -284,4 +381,16 @@
   };
 
   if (store.get() || new URLSearchParams(location.search).has("debug")) startHud();
+
+  // Five quick taps on the "PEV Buddy" title open the panel: the way in on a
+  // phone, where there is no console to type pev.hud() into.
+  let taps = [];
+  document.querySelector("#sidebar header h1")?.addEventListener("click", () => {
+    const now = Date.now();
+    taps = [...taps.filter((t) => now - t < 2500), now];
+    if (taps.length >= 5) {
+      taps = [];
+      window.pev.hud(true);
+    }
+  });
 })();

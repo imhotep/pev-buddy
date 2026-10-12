@@ -240,6 +240,31 @@ def test_console_debug_tools(page):
     assert page.evaluate("() => pev.state().routeShown") is True
 
 
+def test_debug_panel_buttons_and_title_taps(ride_page):
+    page = ride_page
+    assert not page.is_visible("#pev-debug-hud")
+    # No console on a phone: five quick taps on the title open the panel.
+    for _ in range(5):
+        page.click("#sidebar header h1")
+    page.wait_for_selector("#pev-debug-hud")
+    route_via_ui(page)
+    page.click("#pev-debug-hud >> text=Route")
+    out = page.text_content("#pev-debug-hud .pev-dbg-out")
+    assert out.startswith("route") and '"miles"' in out and "steps" in out
+    page.click("#pev-debug-hud >> text=State")
+    assert '"routeShown": true' in page.text_content("#pev-debug-hud .pev-dbg-out")
+    # Drive from the panel: a fast simulated ride reaches the destination.
+    page.fill("#pev-debug-hud input", "200")
+    page.click("#pev-debug-hud >> text=▶ Drive")
+    page.wait_for_function("() => ride.arrived", timeout=15000)
+    # Minimize keeps only the bug button; close removes the panel.
+    page.click("#pev-debug-hud .pev-dbg-min")
+    assert not page.is_visible("#pev-debug-hud .pev-dbg-readout")
+    page.click("#pev-debug-hud .pev-dbg-min")
+    page.click("#pev-debug-hud >> text=✕")
+    assert not page.is_visible("#pev-debug-hud")
+
+
 def test_console_drive_rides_the_route_to_arrival(ride_page):
     page = ride_page
     route_via_ui(page)
