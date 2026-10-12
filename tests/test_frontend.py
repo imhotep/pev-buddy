@@ -1039,3 +1039,19 @@ def test_desktop_never_fills_the_start_by_itself(open_app):
     page.evaluate(f"() => setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: 'Somewhere' }})")
     page.wait_for_timeout(500)
     assert page.evaluate("() => state.startRef") is None
+
+
+def test_mopeds_get_no_locker_or_rack_tiles(page):
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.parkKind === 'locker'")
+    # Switching to a moped: the locker no longer fits, so the route goes back
+    # to the real destination and only the charger tile is offered.
+    page.select_option("#vehicle", "moped")
+    page.wait_for_function("() => !state.parkKind && state.endRef.label === 'Cafe'")
+    assert [c["kind"] for c in _chips(page)] == ["charger"]
+    assert not page.is_visible(".goal-ring")
+    # Back on a scooter all three return.
+    page.select_option("#vehicle", "scooter")
+    assert [c["kind"] for c in _chips(page)] == ["charger", "locker", "rack"]

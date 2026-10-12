@@ -253,9 +253,9 @@ button.secondary[aria-expanded="true"] { border-color: var(--accent); }
 
 /* Park near destination: one chip per parking kind, with its distance. */
 .park-near { margin-top: 10px; }
-/* Three equal tiles, name over distance: fits a phone's width and the
+/* Equal tiles (three, or one for mopeds), name over distance: fits a phone's width and the
    desktop sidebar alike. */
-.park-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px; }
+.park-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
 .park-chip {
   display: flex;
   flex-direction: column;

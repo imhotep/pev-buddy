@@ -111,7 +111,8 @@ the nearest charger, BikeLink locker and bike rack to it, each with its
 distance (greyed out when there is none within a mile). Picking one routes
 there instead: a ring and a dashed line mark the real destination, the summary
 says how far the walk is, and arrival announces it ("Cafe Encore is 30 feet
-away"). Picking it again goes back to riding all the way.
+away"). Picking it again goes back to riding all the way. Mopeds get the
+charger tile only: lockers and racks are sized for bikes and scooters.
 
 **Phones start from your location**, as other navigation apps do: with
 location already allowed the start fills in at launch, silently; otherwise the

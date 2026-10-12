@@ -100,6 +100,16 @@ function syncVehicleDesc() {
 document.getElementById("vehicle").addEventListener("change", (e) => {
   state.vehicle = e.target.value;
   syncVehicleDesc();
+  // Parked at a locker or rack, then switched to a moped: that spot doesn't
+  // take this vehicle, so ride all the way again.
+  if (state.parkKind && !parkKindFits(state.parkKind)) {
+    const goal = state.parkFor;
+    state.parkFor = null;
+    state.parkKind = null;
+    placeEnd(goal); // routes
+    return;
+  }
+  syncParking();
   maybeRoute();
 });
 loadVehicleTypes();
@@ -560,6 +570,15 @@ const PARK_KINDS = [
 ];
 const poiIndex = { charger: [], locker: [], rack: [] };
 
+// BikeLink lockers and bike racks are sized for bikes, scooters and boards; a
+// moped (or e-moto) parks in motorcycle parking, which we have no data for.
+// Those vehicles get the charger tile only.
+const PARK_KINDS_BY_VEHICLE = { moped: ["charger"], emoto: ["charger"] };
+function parkKindFits(kind) {
+  const only = PARK_KINDS_BY_VEHICLE[state.vehicle];
+  return !only || only.includes(kind);
+}
+
 function indexPois(features) {
   for (const f of features) {
     const list = poiIndex[f.properties.kind];
@@ -644,7 +663,7 @@ function syncParking() {
   box.classList.toggle("hidden", !show);
   chips.innerHTML = "";
   if (show) {
-    for (const k of PARK_KINDS) {
+    for (const k of PARK_KINDS.filter((x) => parkKindFits(x.kind))) {
       const p = nearestPoi(k.kind, goal);
       const active = state.parkKind === k.kind;
       const b = document.createElement("button");
