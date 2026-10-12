@@ -121,10 +121,11 @@ chargers, blue lockers, violet racks) when zoomed in.
    | `addresses.parquet` | Overture `addresses/address` | ~433k addresses for search |
    | `bikelink.geojson` | [bikelink.org](https://bikelink.org) `/maps` payload | SF secure bike/PEV lockers (eLockers, hangars, group parking), ~29 sites |
    | `racks.geojson` | [DataSF / SFMTA](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5) SODA API | ~6k sidewalk bike racks + on-street corrals, with space counts and install year |
+   | `bike_exempt_turns.json` | OSM turn restrictions with `except=bicycle`, via the [Overpass API](https://overpass-api.de) | ~120 SF rules; Overture drops `except`, see below |
    | `elevation.npz` | [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (AWS Open Data; USGS 3DEP in the US) | ground elevation mosaic, zoom 14 (~7.5 m/px), sampled at every junction |
 
-   `python -m pev_buddy.sync bundle --fetch-elevation` adds elevation to an
-   existing data directory without re-pulling Overture.
+   `python -m pev_buddy.sync bundle --fetch-elevation --fetch-turns` adds
+   both to an existing data directory without re-pulling Overture.
 
 2. **Routing** (`src/pev_buddy/`) builds one directed *union* graph from
    segments + connectors (every edge any vehicle type may ride) and runs A*
@@ -311,6 +312,16 @@ measurement-driven verification are mine.
   routed. The result is a *soft* speed policy — fast streets are expensive,
   not forbidden — so a walled-in destination is still reachable via an
   arterial (with a warning) instead of a dead "no route" error.
+- **Bicycle-exempt turn restrictions.** Overture imports OSM's turn
+  restrictions as `prohibited_transitions` but drops their `except` tag, so a
+  car-only rule binds every vehicle: the Muni red-lane "only right turn at
+  16th, except bicycles, buses, taxis" on Mission St became "no straight on"
+  for e-scooters, which then looped round the block. Sync pulls the
+  `except=bicycle` restrictions from Overpass, and the graph build moves the
+  matching Overture bans (same junction within 15 m, same from-street; for
+  `no_*` rules, same to-street) into a table only mopeds obey. If Overpass is
+  unreachable the existing file is kept, and without one the bans apply to
+  everyone, as before.
 - **Turns are geometry-derived.** Instructions come from bearings between
   segment endpoints plus Overture signpost `destinations` where available;
   there's no per-intersection camera-style guidance.

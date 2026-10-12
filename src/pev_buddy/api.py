@@ -18,7 +18,7 @@ from . import config
 from .bikelink import BikeLinkStore
 from .geo import format_distance
 from .geocode import REVERSE_EXACT_M, Geocoder, display_address
-from . import elevation
+from . import elevation, osm_turns
 from .graph import RoadGraph
 from .models import (
     BikeLinkOut,
@@ -57,7 +57,7 @@ class AppState:
             roads = orjson.loads((self.data_dir / "roads.geojson").read_bytes())
             connectors = orjson.loads((self.data_dir / "connectors.json").read_bytes())
             self.graph = RoadGraph()
-            self.graph.build(roads, connectors)
+            self.graph.build(roads, connectors, osm_turns.load(self.data_dir / "bike_exempt_turns.json"))
             grid = elevation.load_grid(self.data_dir / "elevation.npz")
             if grid is not None:
                 self.graph.set_elevation(grid)

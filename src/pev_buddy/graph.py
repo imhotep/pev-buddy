@@ -45,6 +45,9 @@ class RoadGraph:
         self.edges = []
         # prohib: (seg_idx, heading_mask, from_node) -> set of forbidden to_seg_idx
         self.prohib: dict[tuple, set] = {}
+        # Prohibitions that bind motorcycle-mode vehicles (mopeds) only: OSM
+        # marks them `except=bicycle`, which Overture drops (see osm_turns).
+        self.prohib_moto: dict[tuple, set] = {}
         # dest: seg_idx -> [(to_seg_idx, to_node, label, heading_mask)]
         self.dest: dict[int, list] = {}
         # Per vehicle type (routable ids only): 1-byte allow flags.
@@ -59,7 +62,7 @@ class RoadGraph:
 
     # -- construction -------------------------------------------------------
 
-    def build(self, roads_geojson: dict, connectors: dict) -> None:
+    def build(self, roads_geojson: dict, connectors: dict, bike_exempt_turns: list | None = None) -> None:
         cids = list(connectors)
         self.node_index = {cid: i for i, cid in enumerate(cids)}
         self.node_coords = np.array([connectors[c] for c in cids], dtype=np.float64)
@@ -131,6 +134,8 @@ class RoadGraph:
             for hm_bit in (1, 2):
                 if hm & hm_bit:
                     self.prohib.setdefault((seg_idx, hm_bit, at_node), set()).add(to_seg)
+        if bike_exempt_turns:
+            self._exempt_bicycles(bike_exempt_turns)
         for seg_idx, to_sid, cid, label, hm in raw_dest:
             to_seg = seg_id_to_idx.get(to_sid)
             to_node = self.node_index.get(cid)
@@ -179,6 +184,38 @@ class RoadGraph:
 
         self.scc = self._build_scc()
         self.scc_reach = self._build_scc_reachability()
+
+    # How close (m) an OSM restriction's via node must be to an Overture
+    # connector to be the same junction.
+    EXEMPT_VIA_RADIUS_M = 15.0
+
+    def _exempt_bicycles(self, rules: list[dict]) -> None:
+        """Move prohibitions that OSM exempts bicycles from into prohib_moto.
+
+        A rule matches a prohibition at a connector within EXEMPT_VIA_RADIUS_M
+        of its via node whose from-segment carries one of the rule's from-way
+        names. `only_*` rules (only right turn, ...) were turned into a ban on
+        every other way out, so they lift all of them; `no_*` rules lift the
+        ones into a segment named like their to-way.
+        """
+        coords = np.asarray(self.node_coords, dtype=float)
+        for rule in rules:
+            near = geo.fast_distances(rule["via"][0], rule["via"][1], coords) <= self.EXEMPT_VIA_RADIUS_M
+            via_nodes = set(np.nonzero(near)[0].tolist())
+            if not via_nodes:
+                continue
+            only = rule["restriction"].startswith("only_")
+            for key in list(self.prohib):
+                seg_idx, _hm, at_node = key
+                if at_node not in via_nodes or self.segments[seg_idx]["name"] not in rule["from"]:
+                    continue
+                lifted = {t for t in self.prohib[key] if only or self.segments[t]["name"] in rule["to"]}
+                if not lifted:
+                    continue
+                self.prohib_moto.setdefault(key, set()).update(lifted)
+                self.prohib[key] -= lifted
+                if not self.prohib[key]:
+                    del self.prohib[key]
 
     def _inherit_street_speeds(self, meta: list[tuple]) -> dict[int, float]:
         """Limits for unposted blocks, taken from the same street's posted blocks.
@@ -458,6 +495,7 @@ class RoadGraph:
             "connector_ids": cids,
             "vehicles": vehicles,
             "prohib": [[k[0], k[1], k[2], sorted(v)] for k, v in self.prohib.items()],
+            "prohib_moto": [[k[0], k[1], k[2], sorted(v)] for k, v in self.prohib_moto.items()],
             "dest": [[s, *row] for s, rows in self.dest.items() for row in rows],
         }
         (data_dir / "graph_meta.json").write_bytes(orjson.dumps(meta))
@@ -505,6 +543,7 @@ class RoadGraph:
         g.scc_reach = [set(rf[ro[i] : ro[i + 1]].tolist()) for i in range(len(ro) - 1)]
 
         g.prohib = {(r[0], r[1], r[2]): set(r[3]) for r in meta["prohib"]}
+        g.prohib_moto = {(r[0], r[1], r[2]): set(r[3]) for r in meta.get("prohib_moto", [])}
         for seg_idx, to_seg, to_node, label, hm in meta["dest"]:
             g.dest.setdefault(seg_idx, []).append((to_seg, to_node, label, hm))
 

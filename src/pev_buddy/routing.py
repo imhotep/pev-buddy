@@ -160,6 +160,7 @@ def find_route(
     ok = graph.edge_ok[vehicle]
     mult = [config.COST_PROFILES[veh.profile][c] for c in config.CATEGORIES]
     _E_frm, E_to, E_seg, E_head, E_len, E_cat = graph.edge_columns()
+    is_moto = veh.access_mode == "motorcycle"
     E_hill = graph.hill_costs(veh.profile)  # >= 0, so the heuristic stays admissible
     h = _heuristics(graph, end_lon, end_lat, veh.profile)
     START = -1
@@ -194,6 +195,10 @@ def find_route(
                 forbidden = graph.prohib.get((prev_seg, mask, node))
                 if forbidden is not None and seg_idx in forbidden:
                     continue
+                if is_moto:
+                    forbidden = graph.prohib_moto.get((prev_seg, mask, node))
+                    if forbidden is not None and seg_idx in forbidden:
+                        continue  # a car rule bicycles are exempt from
             nstate = (b, e)
             ng = g + E_len[e] * mult[E_cat[e]] + E_hill[e]
             if ng < best.get(nstate, float("inf")) - 1e-9:
