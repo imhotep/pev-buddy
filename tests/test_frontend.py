@@ -265,6 +265,33 @@ def test_debug_panel_buttons_and_title_taps(ride_page):
     assert not page.is_visible("#pev-debug-hud")
 
 
+def test_debug_panel_drags_stays_on_screen_and_remembers(page):
+    page.evaluate("() => pev.hud(true)")
+    grip = page.locator("#pev-debug-hud .pev-dbg-grip")
+    g = grip.bounding_box()
+    gx, gy = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
+    page.mouse.move(gx, gy)
+    page.mouse.down()
+    page.mouse.move(gx + 300, gy + 200, steps=8)
+    page.mouse.up()
+    box = rect(page, "#pev-debug-hud")
+    assert abs(box["left"] - (g["x"] - 4 + 300)) < 20 and box["top"] > 150, box
+    # Flung far off screen: it stops at the edge.
+    g = grip.bounding_box()
+    page.mouse.move(g["x"] + 5, g["y"] + 5)
+    page.mouse.down()
+    page.mouse.move(5000, 5000, steps=4)
+    page.mouse.up()
+    box = rect(page, "#pev-debug-hud")
+    assert box["right"] <= 1280 + 1 and box["top"] < 800, box
+    # Remembered across a reload.
+    page.reload()
+    page.wait_for_selector("#pev-debug-hud")
+    again = rect(page, "#pev-debug-hud")
+    assert abs(again["left"] - box["left"]) < 2 and abs(again["top"] - box["top"]) < 2
+    page.evaluate("() => pev.hud(false)")
+
+
 def test_console_drive_rides_the_route_to_arrival(ride_page):
     page = ride_page
     route_via_ui(page)

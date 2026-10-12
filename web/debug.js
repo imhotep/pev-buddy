@@ -66,7 +66,10 @@
 #pev-debug-hud button:active { background: #234; }
 #pev-debug-hud pre { margin: 0; white-space: pre-wrap; overflow: auto; }
 #pev-debug-hud .pev-dbg-out { color: #cde; border-top: 1px solid #2f4f2f; padding-top: 4px; max-height: 32vh; }
-#pev-debug-hud .pev-dbg-readout { pointer-events: none; }`;
+#pev-debug-hud .pev-dbg-readout { pointer-events: none; }
+#pev-debug-hud .pev-dbg-grip { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  color: #9c9; font-size: 16px; line-height: 1; padding: 4px 6px; border-radius: 5px; }
+#pev-debug-hud.dragging .pev-dbg-grip { cursor: grabbing; background: #234; }`;
 
   let output = null; // the panel's output box
   function show(title, value) {
@@ -111,7 +114,16 @@
     mph.value = "12";
     mph.title = "Simulated speed (mph)";
     mph.setAttribute("aria-label", "Simulated speed in mph");
-    button("🐞", "Minimize / expand the panel", () => panel.classList.toggle("min"), "pev-dbg-min");
+    const grip = document.createElement("span");
+    grip.className = "pev-dbg-grip";
+    grip.textContent = "⠿";
+    grip.title = "Drag to move the panel";
+    grip.setAttribute("aria-hidden", "true");
+    bar.appendChild(grip);
+    button("🐞", "Minimize / expand the panel", () => {
+      panel.classList.toggle("min");
+      placePanel(panel); // a wider panel may now run off the screen
+    }, "pev-dbg-min");
     button("▶ Drive", "Ride the current route with simulated GPS", () => show("drive", drive(Number(mph.value) || 12)));
     bar.appendChild(mph);
     button("■ Stop", "Stop the simulated drive", () => show("stop", stop() || "Stopped."));
@@ -127,8 +139,64 @@
     output.hidden = true;
     panel.append(bar, readout, output);
     document.body.appendChild(panel);
+    makeDraggable(panel, grip);
+    placePanel(panel, loadPos());
     return { panel, readout };
   }
+
+  // Moving the panel: drag the grip (finger or mouse). Kept on screen, and
+  // remembered across reloads.
+  const POS_KEY = "pev-debug-pos";
+  function loadPos() {
+    try {
+      return JSON.parse(localStorage.getItem(POS_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
+  function savePos(pos) {
+    try {
+      localStorage.setItem(POS_KEY, JSON.stringify(pos));
+    } catch {
+      /* private mode: not remembered */
+    }
+  }
+  function placePanel(panel, pos) {
+    const r = panel.getBoundingClientRect();
+    const want = pos || { x: r.left, y: r.top };
+    const x = Math.max(0, Math.min(want.x, innerWidth - r.width));
+    const y = Math.max(0, Math.min(want.y, innerHeight - Math.min(r.height, 40)));
+    panel.style.left = `${Math.round(x)}px`;
+    panel.style.top = `${Math.round(y)}px`;
+    return { x, y };
+  }
+  function makeDraggable(panel, grip) {
+    let start = null;
+    grip.addEventListener("pointerdown", (e) => {
+      const r = panel.getBoundingClientRect();
+      start = { dx: e.clientX - r.left, dy: e.clientY - r.top, id: e.pointerId };
+      grip.setPointerCapture(e.pointerId);
+      panel.classList.add("dragging");
+      e.preventDefault();
+    });
+    grip.addEventListener("pointermove", (e) => {
+      if (!start || e.pointerId !== start.id) return;
+      placePanel(panel, { x: e.clientX - start.dx, y: e.clientY - start.dy });
+    });
+    const end = (e) => {
+      if (!start || e.pointerId !== start.id) return;
+      start = null;
+      panel.classList.remove("dragging");
+      const r = panel.getBoundingClientRect();
+      savePos({ x: r.left, y: r.top });
+    };
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+    const onResize = () => placePanel(panel);
+    window.addEventListener("resize", onResize);
+    panelUndo.push(() => window.removeEventListener("resize", onResize));
+  }
+  let panelUndo = [];
 
   async function copy(panel) {
     const text = [...panel.querySelectorAll("pre")].filter((p) => !p.hidden).map((p) => p.textContent).join("\n\n");
@@ -248,6 +316,8 @@
     hud.el.remove();
     hud = null;
     output = null;
+    panelUndo.forEach((f) => f());
+    panelUndo = [];
   }
 
   // ------------------------------------------------------------ GPS sim
