@@ -132,6 +132,8 @@ def vehicle_allows(veh: VehicleType, category: str, effective_speed_mph: float) 
     Pure data lookup — no city- or segment-specific conditionals, so a
     per-city override just replaces fields on the VehicleType.
     """
+    if category == "steps":
+        return False  # stairs: walking only
     if veh.road_max_mph is None:
         return True  # no road-speed restriction (e-bikes, mopeds)
     if category == "bike_lane" and veh.bike_lane_exempt:
@@ -158,9 +160,11 @@ SPEED_BY_CLASS_DEFAULT_MPH = {
 }
 DEFAULT_SPEED_MPH = 25  # unknown road class
 
-# Classes no vehicle type ever routes on (stairs / bridle paths: impassable).
-# High-speed classes are excluded through MAX_SPEED_MPH instead.
-EXCLUDED_CLASSES = frozenset({"steps", "bridleway"})
+# Classes no one routes on (bridle paths). Stairs are in the graph for the
+# walk from a parking spot to the destination (category "steps"), but no
+# vehicle type may ride them. High-speed classes are excluded through
+# MAX_SPEED_MPH instead.
+EXCLUDED_CLASSES = frozenset({"bridleway"})
 
 # Above this effective speed (mph) a segment is excluded for every vehicle
 # type (freeway-grade roads are never ridden, whatever the vehicle).
@@ -186,11 +190,11 @@ SHARED_MAX_MPH = 28.0
 #                 connector, e.g. to reach a point walled in by fast streets)
 #   quiet / shared / arterial: speed bands above
 COST_PROFILES = {
-    "A": {"bike_lane": 0.85, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.0, "shared": 1.3, "arterial": 3.0},
-    "B": {"bike_lane": 0.85, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.0, "shared": 1.0, "arterial": 1.6},
-    "C": {"bike_lane": 3.0, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.1, "shared": 0.9, "arterial": 1.0},
+    "A": {"bike_lane": 0.85, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.0, "shared": 1.3, "arterial": 3.0, "steps": 1000.0},
+    "B": {"bike_lane": 0.85, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.0, "shared": 1.0, "arterial": 1.6, "steps": 1000.0},
+    "C": {"bike_lane": 3.0, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.1, "shared": 0.9, "arterial": 1.0, "steps": 1000.0},
 }
-CATEGORIES = ("bike_lane", "living_street", "sidewalk", "quiet", "shared", "arterial")
+CATEGORIES = ("bike_lane", "living_street", "sidewalk", "quiet", "shared", "arterial", "steps")
 
 # --- Hills -------------------------------------------------------------------
 # Edge cost adds, per cost profile, for the climb along an edge (end elevation
@@ -242,6 +246,8 @@ ETA_REALISM_FACTOR = 0.75
 
 # Sidewalk connectors are walk-your-vehicle segments: walking pace.
 SIDEWALK_WALK_MPH = 3.0
+# Walking from a parking spot to the destination.
+WALK_MPH = 3.0
 
 # Fallback cap for a routable vehicle with no speed_limit_mph (none today).
 AVG_SPEED_MPH = 15.0

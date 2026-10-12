@@ -29,7 +29,8 @@ hands-free: a big next-turn banner, voice prompts, and automatic rerouting.
 - **Parks you near the destination.** Tiles under the route offer the nearest
   EV charger, BikeLink locker and bike rack to where you're going (charger and
   motorcycle parking for mopeds), with distances. Pick one and the route ends
-  there, with the walk to your real destination drawn on the map and
+  there, with walking directions to your real destination drawn on the map
+  (sidewalks, paths and stairs, either way along one-way streets) and
   announced on arrival.
 - **Rides with you.** Ride mode snaps your GPS to the route, shows the next
   turn with a live countdown, speaks it ("In 500 feet, turn right onto …"),
@@ -227,6 +228,12 @@ tap from the route.
    to-street) into a table only mopeds obey. On current data that lifts 164
    bans from 123 OSM rules.
 
+   **Walking.** `/api/walk` finds the walk from a parking spot to the real
+   destination over the same graph: every street, path, sidewalk and stair,
+   in either direction (one-way rules and turn restrictions are for
+   vehicles), at 3 mph. Stairs are in the graph only for this: their
+   category, `steps`, is one no vehicle type may ride.
+
    **Snapping.** A start or destination snaps to the nearest junction the
    vehicle can leave (start) or reach (destination), skipping junctions in a
    pocket joined to no more than `SNAP_POCKET_NODES` others for that vehicle:
@@ -241,7 +248,9 @@ tap from the route.
    `vehicle`; blocks non-street-legal ones), `/api/vehicles` (vehicle types +
    default, from config), `/api/search` (addresses + places + chargers,
    ranked), `/api/reverse` (nearest-address label for a map-picked point),
-   `/api/geocode`, `/api/stations[/nearest]` and `/api/bikelink[/nearest]`.
+   `/api/walk` (walking directions), `/api/geocode`, `/api/stations[/nearest]`
+   and `/api/bikelink[/nearest]`. Search ignores case and accents, so "Café
+   Encore" finds "Cafe Encore" (and the other way round).
 
 4. **UI** is a dependency-free vanilla-JS + MapLibre GL single page,
    installable as a PWA (`web/`: `app.js`, `debug.js`, `style.css`, `sw.js`).

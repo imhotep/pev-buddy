@@ -20,6 +20,7 @@ from .bikelink import BikeLinkStore
 from .geo import format_distance
 from .geocode import REVERSE_EXACT_M, Geocoder, display_address
 from . import elevation, osm_turns
+from .text import fold
 from .graph import RoadGraph
 from .models import (
     BikeLinkOut,
@@ -27,13 +28,15 @@ from .models import (
     PointRef,
     ReverseOut,
     RouteOut,
+    WalkOut,
+    WalkRequest,
     RouteRequest,
     RouteStepOut,
     SearchItem,
     StationOut,
 )
 from .pois import POIIndex
-from .routing import RouteError, find_route
+from .routing import RouteError, find_route, find_walk
 from .stations import StationStore
 from .turns import build_steps
 
@@ -205,12 +208,12 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         ql = q.strip()
         if not ql:
             return []
-        ql_l = ql.lower()
+        ql_l = fold(ql)
 
         items: list[dict] = []
         if state.stations is not None:
             for s in state.stations.all():
-                nm = (s.get("name") or "").lower()
+                nm = fold(s.get("name"))
                 if not nm:
                     continue
                 score = 100 if nm == ql_l else 80 if nm.startswith(ql_l) else 60 if ql_l in nm else 0
@@ -229,7 +232,7 @@ def create_app(data_dir: str | None = None) -> FastAPI:
                     )
         if state.bikelink is not None:
             for s in state.bikelink.all():
-                nm = (s.get("name") or "").lower()
+                nm = fold(s.get("name"))
                 if not nm:
                     continue
                 score = 100 if nm == ql_l else 80 if nm.startswith(ql_l) else 60 if ql_l in nm else 0
@@ -297,6 +300,25 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             if len(out) >= limit:
                 break
         return out
+
+    @app.post("/api/walk", response_model=WalkOut)
+    def walk(req: WalkRequest) -> dict:
+        """Walking directions, e.g. from a parking spot to the real destination."""
+        if state.graph is None:
+            raise HTTPException(503, "network not loaded yet")
+        try:
+            slon, slat, _ = resolve_point(req.start, "start")
+            elon, elat, _ = resolve_point(req.end, "end")
+            result = find_walk(state.graph, slon, slat, elon, elat)
+        except HTTPException:
+            raise
+        except RouteError as e:
+            raise HTTPException(400, str(e))
+        return {
+            "path": result.path,
+            "distance_m": round(result.distance_m, 1),
+            "duration_s": round(result.duration_s),
+        }
 
     @app.post("/api/route", response_model=RouteOut)
     def route(req: RouteRequest) -> dict:

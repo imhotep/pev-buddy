@@ -647,9 +647,64 @@ function parkGoal() {
   return state.parkFor || state.endRef;
 }
 
+// The walk from the parking spot to the real destination: by the walking
+// route once /api/walk answers, as the crow flies until then (or if it can't).
+let walk = null; // { key, path, distance_m, duration_s }
+let walkRequest = null;
 function parkWalkM() {
   const { parkFor: g, endRef: e } = state;
-  return g && e ? metersBetween(g.lat, g.lon, e.lat, e.lon) : 0;
+  if (!g || !e) return 0;
+  if (walk && walk.key === walkKey()) return walk.distance_m;
+  return metersBetween(g.lat, g.lon, e.lat, e.lon);
+}
+function walkKey() {
+  const { parkFor: g, endRef: e } = state;
+  return g && e ? [e.lat, e.lon, g.lat, g.lon].join(",") : null;
+}
+function walkNote() {
+  if (!state.parkFor) return "";
+  const mins = walk && walk.key === walkKey() ? ` (${fmtMin(walk.duration_s)})` : "";
+  return `🚶 Then walk ${fmtDist(parkWalkM())}${mins} to ${escapeHtml(state.parkFor.label)}`;
+}
+async function fetchWalk() {
+  if (walkRequest) walkRequest.abort();
+  const key = walkKey();
+  if (!key) return;
+  const request = new AbortController();
+  walkRequest = request;
+  try {
+    const res = await fetch("/api/walk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        start: { lat: state.endRef.lat, lon: state.endRef.lon },
+        end: { lat: state.parkFor.lat, lon: state.parkFor.lon },
+      }),
+      signal: request.signal,
+    });
+    if (!res.ok) return; // keep the straight line
+    const data = await res.json();
+    if (key !== walkKey()) return; // the parking choice changed meanwhile
+    walk = { key, ...data };
+    drawWalk();
+    const note = document.querySelector("#route-summary .park-note");
+    if (note) note.innerHTML = walkNote();
+  } catch {
+    /* aborted or offline: the straight line stays */
+  } finally {
+    if (walkRequest === request) walkRequest = null;
+  }
+}
+function drawWalk() {
+  const src = map.getSource("pev-walk");
+  if (!src) return;
+  const { parkFor: g, endRef: e } = state;
+  if (!g || !e) return src.setData(emptyFC());
+  const coords = walk && walk.key === walkKey() && walk.path.length > 1 ? walk.path : [[e.lon, e.lat], [g.lon, g.lat]];
+  // The walking route starts at the junction nearest the parking spot and
+  // ends at the one nearest the destination: join both ends to the pins.
+  const line = [[e.lon, e.lat], ...coords, [g.lon, g.lat]];
+  src.setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "LineString", coordinates: line } }] });
 }
 
 function poiRef(kind, p) {
@@ -717,15 +772,11 @@ function syncParking() {
       chips.appendChild(b);
     }
   }
-  // The walk: dashed from the parking spot to the real destination.
+  // The walk: dashed from the parking spot to the real destination, along
+  // the walking route once it arrives.
   const walking = state.parkFor && state.endRef;
-  if (map.getSource("pev-walk")) {
-    map.getSource("pev-walk").setData(
-      walking
-        ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "LineString", coordinates: [[state.endRef.lon, state.endRef.lat], [state.parkFor.lon, state.parkFor.lat]] } }] }
-        : emptyFC()
-    );
-  }
+  drawWalk();
+  if (walking && (!walk || walk.key !== walkKey())) fetchWalk();
   if (walking) goalMarker.setLngLat([state.parkFor.lon, state.parkFor.lat]).addTo(map);
   else goalMarker.remove();
 }
@@ -1789,7 +1840,7 @@ function renderRoute(data) {
   let html = `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)}${climb} · ${data.steps.length} steps<br>`;
   html += `<span class="route-from">From ${escapeHtml(data.start_label || "start")} to ${escapeHtml(data.end_label || "destination")}</span>`;
   if (state.parkFor) {
-    html += `<div class="park-note">🚶 Then walk ${fmtDist(parkWalkM())} to ${escapeHtml(state.parkFor.label)}</div>`;
+    html += `<div class="park-note">${walkNote()}</div>`;
   }
   for (const w of data.warnings || []) html += `<div class="warn">⚠ ${escapeHtml(w)}</div>`;
   summary.innerHTML = html;
@@ -1884,6 +1935,7 @@ function frameRoute(options = {}) {
   if (!state.route) return;
   const points = [...state.route.path];
   for (const ref of [state.startRef, state.endRef, state.parkFor]) if (ref) points.push([ref.lon, ref.lat]);
+  if (walk && walk.key === walkKey()) points.push(...walk.path);
   const padding = mapPadding();
   framedPadding = frameKey(padding);
   fitToPath(points, { padding, ...options });

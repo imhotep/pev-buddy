@@ -17,8 +17,11 @@ def test_node_and_edge_counts(graph: RoadGraph):
     assert len(by_seg[seg_by_name["s-fast"]]) == 2
     # 20 mph secondary allowed both ways
     assert len(by_seg[seg_by_name["s-slow"]]) == 2
-    # steps are never routed
-    assert seg_by_name["s-steps"] not in by_seg, "steps must be excluded"
+    # steps are in the graph for walking, but no vehicle type may ride them
+    steps_edges = [i for i, e in enumerate(graph.edges) if e[2] == seg_by_name["s-steps"]]
+    assert steps_edges and all(graph.edges[i][5] == "steps" for i in steps_edges)
+    for vid, ok in graph.edge_ok.items():
+        assert not any(ok[i] for i in steps_edges), f"{vid} may not ride stairs"
     # motorway (65 mph default) is never routed
     assert seg_by_name["s-hwy"] not in by_seg, "motorway must be excluded"
     # sidewalk is a high-cost connector, not excluded

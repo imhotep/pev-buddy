@@ -107,6 +107,87 @@ def _joined(graph: RoadGraph, node: int, vehicle: str, forward: bool) -> bool:
     return False
 
 
+@dataclass
+class WalkResult:
+    path: list[list[float]]
+    distance_m: float
+    duration_s: float
+
+
+def find_walk(
+    graph: RoadGraph,
+    start_lon: float,
+    start_lat: float,
+    end_lon: float,
+    end_lat: float,
+    snap_radius_m: float | None = None,
+) -> WalkResult:
+    """Walking route, e.g. from a parking spot to the real destination.
+
+    A walker uses every street, path, sidewalk and stair in the graph, in
+    either direction (one-way rules and turn restrictions are for vehicles),
+    so the search runs over edges forwards and backwards with length as the
+    cost. Freeways and other > 45 mph roads are not in the graph at all.
+    """
+    radius = snap_radius_m if snap_radius_m is not None else config.SNAP_RADIUS_M
+    coords = np.asarray(graph.node_coords, dtype=float)
+    ends = []
+    for lon, lat in ((start_lon, start_lat), (end_lon, end_lat)):
+        d = geo.fast_distances(lon, lat, coords)
+        i = int(np.argmin(d))
+        if float(d[i]) > radius:
+            raise SnapError((lon, lat), i, float(d[i]), radius)
+        ends.append(i)
+    start, end = ends
+    if start == end:
+        return WalkResult(path=[list(graph.node(start))], distance_m=0.0, duration_s=0.0)
+
+    frm, to, _seg, _head, length, _cat = graph.edge_columns()
+    incoming = graph.incoming()
+    ref = math.cos(math.radians(end_lat)) * geo.EARTH_RADIUS_M
+    xe, ye = math.radians(end_lon) * ref, math.radians(end_lat) * geo.EARTH_RADIUS_M
+
+    def h(n: int) -> float:
+        lon, lat = coords[n]
+        return math.hypot(math.radians(lon) * ref - xe, math.radians(lat) * geo.EARTH_RADIUS_M - ye)
+
+    best = {start: 0.0}
+    parent: dict[int, tuple[int, int, bool]] = {}  # node -> (prev node, edge, edge walked forwards)
+    heap = [(h(start), 0.0, start)]
+    while heap:
+        _f, g, n = heapq.heappop(heap)
+        if g > best[n] + 1e-9:
+            continue
+        if n == end:
+            break
+        for e, nxt, forward in [(e, to[e], True) for e in graph.adj[n]] + [(e, frm[e], False) for e in incoming[n]]:
+            ng = g + length[e]
+            if ng < best.get(nxt, float("inf")) - 1e-9:
+                best[nxt] = ng
+                parent[nxt] = (n, e, forward)
+                heapq.heappush(heap, (ng + h(nxt), ng, nxt))
+    if end not in best:
+        raise RouteError("no walking route found between the given points")
+
+    legs = []
+    n = end
+    while n != start:
+        prev, e, forward = parent[n]
+        legs.append((e, forward))
+        n = prev
+    legs.reverse()
+    path: list[list[float]] = []
+    for e, forward in legs:
+        geom = graph.edge_geometry(e)
+        if not forward:
+            geom = list(reversed(geom))
+        for c in geom:
+            if not path or path[-1] != c:
+                path.append(c)
+    distance = best[end]
+    return WalkResult(path=path, distance_m=distance, duration_s=distance / (config.WALK_MPH * config.MPH_TO_MPS))
+
+
 def _scc_reachable(adj: list[set[int]], src: int, dst: int) -> bool:
     """Is dst reachable from src in the (acyclic) SCC condensation DAG?"""
     seen = {src}
