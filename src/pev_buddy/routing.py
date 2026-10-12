@@ -42,6 +42,8 @@ class RouteResult:
     warnings: list[str] = field(default_factory=list)
     # category -> {"distance_m": float, "max_speed_mph": int | None}
     segment_stats: dict = field(default_factory=dict)
+    climb_m: float = 0.0  # total ascent along the route (m)
+    descent_m: float = 0.0
 
 
 def snap_to_node(
@@ -158,6 +160,8 @@ def find_route(
     ok = graph.edge_ok[vehicle]
     mult = [config.COST_PROFILES[veh.profile][c] for c in config.CATEGORIES]
     _E_frm, E_to, E_seg, E_head, E_len, E_cat = graph.edge_columns()
+    is_moto = veh.access_mode == "motorcycle"
+    E_hill = graph.hill_costs(veh.profile)  # >= 0, so the heuristic stays admissible
     h = _heuristics(graph, end_lon, end_lat, veh.profile)
     START = -1
     open_heap: list[tuple] = []  # (f, g, tie, node, in_edge)
@@ -173,7 +177,7 @@ def find_route(
             continue  # stale entry
         if node == end:
             # with an admissible heuristic, the first popped goal state is optimal
-            return _reconstruct(graph, parent, state, start, end, start_d, end_d)
+            return _reconstruct(graph, parent, state, start, end, start_d, end_d, veh)
 
         for e in graph.adj[node]:
             if not ok[e]:
@@ -191,8 +195,12 @@ def find_route(
                 forbidden = graph.prohib.get((prev_seg, mask, node))
                 if forbidden is not None and seg_idx in forbidden:
                     continue
+                if is_moto:
+                    forbidden = graph.prohib_moto.get((prev_seg, mask, node))
+                    if forbidden is not None and seg_idx in forbidden:
+                        continue  # a car rule bicycles are exempt from
             nstate = (b, e)
-            ng = g + E_len[e] * mult[E_cat[e]]
+            ng = g + E_len[e] * mult[E_cat[e]] + E_hill[e]
             if ng < best.get(nstate, float("inf")) - 1e-9:
                 best[nstate] = ng
                 parent[nstate] = state
@@ -213,6 +221,7 @@ def _reconstruct(
     end: int,
     start_d: float,
     end_d: float,
+    veh: config.VehicleType,
 ) -> RouteResult:
     edges: list[int] = []
     state = goal
@@ -225,27 +234,38 @@ def _reconstruct(
 
     path: list[list[float]] = []
     total = 0.0
+    duration = 0.0
+    climbs = graph.edge_climbs()
+    climb_total = 0.0
+    descent_total = 0.0
     stats: dict[str, dict] = {}
     for i, e in enumerate(edges):
         geom = graph.edge_geometry(e)
         for c in geom if i == 0 else geom[1:]:
             if not path or path[-1] != c:
                 path.append(c)
-        _a, _b, _s, _h, length, category, _eff, posted = graph.edges[e]
+        _a, _b, _s, _h, length, category, eff, posted = graph.edges[e]
         total += length
+        # Per-edge ETA from vehicle cap x road limit (was a flat 15 mph).
+        # Per-edge ETA from vehicle cap x road limit, slowed uphill.
+        duration += graph.edge_duration_s(e, veh, climbs)
+        climb = float(climbs[e]) if len(climbs) else 0.0
+        climb_total += max(climb, 0.0)
+        descent_total += max(-climb, 0.0)
         st = stats.setdefault(category, {"distance_m": 0.0, "max_speed_mph": None})
         st["distance_m"] += length
         if posted is not None:
             st["max_speed_mph"] = max(st["max_speed_mph"] or 0, posted)
-    speed_mps = config.AVG_SPEED_MPH * 0.44704
     return RouteResult(
         edge_idxs=edges,
         path=path,
         distance_m=total,
-        duration_s=total / speed_mps if speed_mps else 0.0,
+        duration_s=duration,
         start_node=start,
         end_node=end,
         start_snap_m=start_d,
         end_snap_m=end_d,
         segment_stats=stats,
+        climb_m=climb_total,
+        descent_m=descent_total,
     )

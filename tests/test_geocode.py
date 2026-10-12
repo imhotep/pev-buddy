@@ -1,8 +1,10 @@
+import numpy as np
 import pytest
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from pev_buddy.geocode import Geocoder
+from pev_buddy.geo import fast_distances
+from pev_buddy.geocode import Geocoder, display_address
 
 
 @pytest.fixture()
@@ -45,3 +47,55 @@ def test_fuzzy_street(geocoder):
 def test_no_results(geocoder):
     assert geocoder.search("zzz nowhere") == []
     assert geocoder.search("") == []
+
+
+def test_reverse_finds_nearest_address(geocoder):
+    # ~30 m north of 1066 Mission St.
+    hit = geocoder.reverse(-122.4148, 37.7599 + 30 / 111_320)
+    assert hit["street"] == "MISSION ST" and hit["number"] == "1066"
+    assert 25 < hit["distance_m"] < 35
+
+
+def test_reverse_respects_max_distance(geocoder):
+    # ~400 m from the nearest address: nothing is "near" by default.
+    far = (-122.4148, 37.7599 - 400 / 111_320)
+    assert geocoder.reverse(*far) is None
+    assert geocoder.reverse(*far, max_m=500)["number"] == "1066"
+
+
+def test_reverse_matches_brute_force(tmp_path):
+    # The grid lookup must agree with a scan of every row, including query
+    # points near cell edges and outside the data's extent.
+    rng = np.random.default_rng(7)
+    n = 2000
+    lon = -122.45 + rng.random(n) * 0.04
+    lat = 37.75 + rng.random(n) * 0.04
+    table = pa.table(
+        {
+            "street": [f"STREET {i % 37}" for i in range(n)],
+            "number": [str(i) for i in range(n)],
+            "unit": [None] * n,
+            "postcode": ["94110"] * n,
+            "lon": lon,
+            "lat": lat,
+        }
+    )
+    p = tmp_path / "addresses.parquet"
+    pq.write_table(table, p)
+    g = Geocoder(p)
+    pts = np.column_stack((lon, lat))
+    for qlon, qlat in zip(-122.452 + rng.random(300) * 0.044, 37.748 + rng.random(300) * 0.044):
+        d = fast_distances(qlon, qlat, pts)
+        hit = g.reverse(qlon, qlat)
+        if d.min() > 150:
+            assert hit is None
+        else:
+            i = int(np.argmin(d))
+            assert (hit["street"], hit["number"]) == (f"STREET {i % 37}", str(i))
+            assert hit["distance_m"] == pytest.approx(d[i])
+
+
+def test_display_address():
+    assert display_address("123", "VALENCIA ST") == "123 Valencia St"
+    assert display_address("400", "3RD ST") == "400 3rd St"
+    assert display_address(None, "O'FARRELL ST") == "O'Farrell St"
