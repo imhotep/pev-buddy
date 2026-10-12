@@ -28,6 +28,9 @@ class RoadGraph:
 
     def __init__(self):
         self.node_coords: np.ndarray = np.empty((0, 2))  # [lon, lat] per node index
+        # Ground elevation (m) per node; NaN where unknown (no elevation data).
+        self.node_elev: np.ndarray = np.empty(0)
+        self._hill_cache: dict[str, memoryview] = {}
         self.node_index: dict[str, int] = {}
         self.adj: list[list[int]] = []  # node -> outgoing edge indices
         self._edge_cols: tuple | None = None  # cached memoryviews, see edge_columns()
@@ -134,9 +137,14 @@ class RoadGraph:
             if to_seg is not None and to_node is not None:
                 self.dest.setdefault(seg_idx, []).append((to_seg, to_node, label, hm))
 
+        inferred = self._inherit_street_speeds(meta)
+
         # Pass 2: edges.
         for seg_idx, seg in enumerate(self.segments):
-            cls, speed, ow, ow_moto, bike_desig = meta[seg_idx]
+            cls, posted, ow, ow_moto, bike_desig = meta[seg_idx]
+            # A block with no posted limit takes its street's (see
+            # _inherit_street_speeds); `posted` stays what the data says.
+            speed = posted if posted is not None else inferred.get(seg_idx)
             node_idxs = [n for n, _ in seg["conns"]]
             ats = [at for _, at in seg["conns"]]
             # Union access mask: a heading exists in the graph when ANY vehicle
@@ -163,13 +171,49 @@ class RoadGraph:
                         continue
                     edge_len = seg["length"] * frac
                     edge_idx = len(self.edges)
-                    self.edges.append((a, b, seg_idx, heading, edge_len, category, eff_speed, speed))
+                    self.edges.append((a, b, seg_idx, heading, edge_len, category, eff_speed, posted))
                     self.adj[a].append(edge_idx)
 
         self._build_vehicle_masks(meta)
+        self.node_elev = np.full(len(self.node_coords), np.nan)
 
         self.scc = self._build_scc()
         self.scc_reach = self._build_scc_reachability()
+
+    def _inherit_street_speeds(self, meta: list[tuple]) -> dict[int, float]:
+        """Limits for unposted blocks, taken from the same street's posted blocks.
+
+        Overture leaves many blocks without a limit even where the rest of the
+        street is posted: 1.9 km of Mission St in the Excelsior sits between
+        20-25 mph blocks. The class default (40 mph for a secondary) then made
+        those blocks illegal for e-scooters and forced long detours. Spread
+        each posted limit to unposted segments of the same name and class that
+        share a junction, repeatedly, taking the highest when two meet (the
+        stricter reading for vehicles barred from fast streets).
+        """
+        by_node: dict[int, list[int]] = {}
+        for i, seg in enumerate(self.segments):
+            for n, _at in seg["conns"]:
+                by_node.setdefault(n, []).append(i)
+        known: dict[int, float] = {i: m[1] for i, m in enumerate(meta) if m[1] is not None}
+        inferred: dict[int, float] = {}
+        frontier = list(known)
+        while frontier:
+            nxt = []
+            for i in frontier:
+                name, cls = self.segments[i]["name"], meta[i][0]
+                if not name:
+                    continue
+                v = known.get(i, inferred.get(i))
+                for n, _at in self.segments[i]["conns"]:
+                    for j in by_node[n]:
+                        if j == i or j in known or self.segments[j]["name"] != name or meta[j][0] != cls:
+                            continue
+                        if v > inferred.get(j, -1.0):
+                            inferred[j] = v
+                            nxt.append(j)
+            frontier = nxt
+        return inferred
 
     def _build_vehicle_masks(self, meta: list[tuple]) -> None:
         """Per-vehicle-type allow bitmaps: which edges/nodes each type may use.
@@ -208,7 +252,49 @@ class RoadGraph:
         """Cost of riding `edge_idx` on `vehicle`: length x profile multiplier."""
         veh = config.VEHICLE_TYPES[vehicle]
         _a, _b, _s, _h, length, category, _eff, _sp = self.edges[edge_idx]
-        return length * config.COST_PROFILES[veh.profile][category]
+        return length * config.COST_PROFILES[veh.profile][category] + self.hill_costs(veh.profile)[edge_idx]
+
+    # -- elevation ------------------------------------------------------------
+
+    def set_elevation(self, grid: dict) -> None:
+        """Sample a ground-elevation grid (see elevation.py) at every node."""
+        from . import elevation
+
+        elev = elevation.sample(grid, np.asarray(self.node_coords, dtype=float))
+        # The tiles carry bathymetry: a pier or wharf junction over the bay
+        # reads its seabed (down to -99 m). Roads are never below sea level here.
+        self.node_elev = np.where(np.isfinite(elev), np.maximum(elev, 0.0), np.nan)
+        self._hill_cache = {}
+
+    def edge_climbs(self) -> np.ndarray:
+        """Per edge: ground elevation at its end minus at its start (m); 0 where
+        unknown. Junctions only, never points in between: a DEM reads the
+        valley floor under a bridge deck, so mid-edge samples would invent
+        climbs on overpasses."""
+        frm, to = (np.asarray(c) for c in self.edge_columns()[:2])
+        if len(self.node_elev) != len(self.node_coords):
+            return np.zeros(len(frm))
+        return np.nan_to_num(self.node_elev[to] - self.node_elev[frm])
+
+    def edge_duration_s(self, edge_idx: int, veh: config.VehicleType, climbs: np.ndarray | None = None) -> float:
+        """Seconds to ride an edge: config.edge_duration_s, slowed uphill by the
+        grade (config.HILL_SLOWDOWN). `climbs` is edge_climbs(), passed in by
+        callers that time many edges."""
+        _a, _b, _s, _h, length, category, eff, _sp = self.edges[edge_idx]
+        base = config.edge_duration_s(veh, length, category, eff)
+        if climbs is None:
+            climbs = self.edge_climbs()
+        climb = float(climbs[edge_idx]) if len(climbs) else 0.0
+        grade = max(climb, 0.0) / length if length > 0 else 0.0
+        return base * (1.0 + config.HILL_SLOWDOWN[veh.profile] * grade)
+
+    def hill_costs(self, profile: str) -> memoryview:
+        """Per-edge extra cost for its climb (config.hill_cost), cached."""
+        if profile not in self._hill_cache:
+            length = np.asarray(self.edge_columns()[4])
+            cost = config.hill_cost(profile, length, self.edge_climbs())
+            self._hill_cache[profile] = memoryview(np.ascontiguousarray(cost, dtype=np.float64))
+        return self._hill_cache[profile]
 
     @staticmethod
     def _edge_category(cls: str, speed: float | None, desig: bool) -> str | None:
@@ -336,6 +422,7 @@ class RoadGraph:
         np.savez(
             data_dir / "graph.npz",
             node_coords=np.asarray(self.node_coords, dtype=np.float64),
+            node_elev=np.asarray(self.node_elev, dtype=np.float32),
             edge_from=np.array([x[0] for x in e], dtype=np.int32),
             edge_to=np.array([x[1] for x in e], dtype=np.int32),
             edge_seg=np.array([x[2] for x in e], dtype=np.int32),
@@ -384,6 +471,7 @@ class RoadGraph:
 
         g = cls()
         g.node_coords = z["node_coords"]
+        g.node_elev = z["node_elev"].astype(np.float64) if "node_elev" in z else np.full(len(g.node_coords), np.nan)
         cids: list[str] = meta["connector_ids"]
         g.node_index = {cid: i for i, cid in enumerate(cids)}
 

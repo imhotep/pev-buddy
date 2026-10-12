@@ -220,6 +220,16 @@ def test_station_popup_and_navigate(page):
     assert page.text_content("#end-label") == "Test Charger"
 
 
+def test_route_summary_shows_climb_only_when_there_is_one(page):
+    # The synthetic bundle has no elevation data: no climb figure at all.
+    route_via_ui(page)
+    assert "↗" not in page.text_content("#route-summary")
+    page.evaluate(
+        """() => { const r = { ...state.route, climb_m: 84 }; renderRoute(r); }"""
+    )
+    assert "↗ 280 ft" in page.text_content("#route-summary")
+
+
 def test_route_summary_steps_and_reset(page):
     route_via_ui(page)
     summary = page.text_content("#route-summary")

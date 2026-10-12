@@ -17,6 +17,7 @@ dependencies = [
     "tqdm>=4",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    "pillow>=10",
 ]
 
 [project.optional-dependencies]

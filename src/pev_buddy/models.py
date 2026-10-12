@@ -107,3 +107,5 @@ class RouteOut(BaseModel):
     end_label: str | None = None
     vehicle: str | None = None
     segment_stats: dict[str, SegmentStat] | None = None
+    climb_m: float = 0.0  # total ascent (m); 0 without elevation data
+    descent_m: float = 0.0
