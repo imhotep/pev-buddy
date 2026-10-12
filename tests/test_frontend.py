@@ -261,6 +261,9 @@ def test_debug_panel_buttons_and_title_taps(ride_page):
     page.click("#pev-debug-hud .pev-dbg-min")
     assert not page.is_visible("#pev-debug-hud .pev-dbg-readout")
     page.click("#pev-debug-hud .pev-dbg-min")
+    # Close sits in the top-right corner.
+    panel, close = rect(page, "#pev-debug-hud"), rect(page, "#pev-debug-hud .pev-dbg-close")
+    assert panel["right"] - close["right"] < 10 and close["top"] - panel["top"] < 10, (panel, close)
     page.click("#pev-debug-hud >> text=✕")
     assert not page.is_visible("#pev-debug-hud")
 

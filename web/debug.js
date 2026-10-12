@@ -60,7 +60,10 @@
 #pev-debug-hud.min { width: auto; }
 #pev-debug-hud.min > :not(.pev-dbg-bar),
 #pev-debug-hud.min .pev-dbg-bar > :not(.pev-dbg-min):not(.pev-dbg-grip) { display: none; }
-#pev-debug-hud .pev-dbg-bar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+#pev-debug-hud .pev-dbg-bar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding-right: 34px; }
+#pev-debug-hud.min .pev-dbg-bar { padding-right: 0; }
+/* Close sits in the panel's top-right corner, apart from the tools. */
+#pev-debug-hud .pev-dbg-close { position: absolute; top: 6px; right: 6px; min-width: 28px; padding: 4px 0; }
 #pev-debug-hud button, #pev-debug-hud input { font: 11px ui-monospace, Menlo, monospace; color: #cfe; background: #12261a;
   border: 1px solid #2f5f3f; border-radius: 5px; padding: 4px 7px; min-height: 28px; }
 #pev-debug-hud input { width: 3.2em; padding: 4px; }
@@ -132,7 +135,7 @@
     button("State", "App, ride and camera snapshot", () => show("state", snapshot()));
     button("Copy", "Copy the readout and the last result", () => copy(panel));
     button("Reset app", "Drop the service worker and caches, then reload", () => resetApp());
-    button("✕", "Close the panel", () => window.pev.hud(false));
+    button("✕", "Close the panel", () => window.pev.hud(false), "pev-dbg-close");
     const readout = document.createElement("pre");
     readout.className = "pev-dbg-readout";
     output = document.createElement("pre");
