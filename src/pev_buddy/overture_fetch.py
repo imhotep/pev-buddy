@@ -120,6 +120,12 @@ def trim_segment(props: dict) -> dict | None:
         when = rule.get("when") or {}
         bike = _mode_includes(when.get("mode"), "bicycle")
         moto = _mode_includes(when.get("mode"), "motorcycle")
+        # A denial scoped to vehicle dimensions (weight, height, length, ...)
+        # targets trucks and buses — no PEV comes near those limits. Without
+        # this, e.g. a "no vehicles over 3 t" rule closed SF's Cayuga Avenue,
+        # a designated bike route, to bicycles in both directions.
+        if access == "denied" and when.get("vehicle"):
+            continue
         if access == "denied":
             if bike:
                 t.ow &= ~hm  # this heading is off limits for bicycles
