@@ -107,11 +107,11 @@ document.getElementById("vehicle").addEventListener("change", (e) => {
     state.parkFor = null;
     state.parkKind = null;
     placeEnd(goal); // routes
-    syncMotoLayer();
+    syncPoiKinds();
     return;
   }
   syncParking();
-  syncMotoLayer();
+  syncPoiKinds();
   maybeRoute();
 });
 loadVehicleTypes();
@@ -129,7 +129,7 @@ const fmtMin = (s) => `${Math.max(1, Math.round(s / 60))} min`;
 // ---------------------------------------------------------------- map layers
 
 map.on("load", async () => {
-  let roads, pois, moto;
+  let roads, pois;
   try {
     roads = await fetchRoads();
     const stations = await (await fetch("/data/stations.geojson")).json();
@@ -137,19 +137,19 @@ map.on("load", async () => {
     // just means fewer pins.
     const bikelink = await fetchFC("/data/bikelink.geojson");
     const racks = await fetchFC("/data/racks.geojson");
-    // Motorcycle parking: its own layer, shown to mopeds only (see syncMotoLayer).
-    moto = (await fetchFC("/data/motoparking.geojson")).features.map((f) => withKind(f, "moto"));
-    // Chargers, lockers, and racks share one clustered source: zoomed out the
-    // map shows count bubbles instead of thousands of overlapping pins.
-    pois = {
-      type: "FeatureCollection",
-      features: [
-        ...stations.features.map((f) => withKind(f, "charger")),
-        ...bikelink.features.map((f) => withKind(f, "locker")),
-        ...racks.features.map((f) => withKind(f, "rack")),
-      ],
-    };
-    indexPois([...pois.features, ...moto]);
+    const moto = await fetchFC("/data/motoparking.geojson");
+    // Chargers, lockers, racks and motorcycle parking share one clustered
+    // source: zoomed out the map shows count bubbles instead of thousands of
+    // overlapping pins. It holds only the kinds that fit the vehicle (see
+    // syncPoiKinds), so the bubbles count what the rider can use.
+    allPois = [
+      ...stations.features.map((f) => withKind(f, "charger")),
+      ...bikelink.features.map((f) => withKind(f, "locker")),
+      ...racks.features.map((f) => withKind(f, "rack")),
+      ...moto.features.map((f) => withKind(f, "moto")),
+    ];
+    pois = poisForVehicle();
+    indexPois(allPois);
   } catch {
     const el = document.getElementById("map-loading");
     if (el) el.textContent = "Map data failed to load — reload to try again.";
@@ -280,6 +280,7 @@ map.on("load", async () => {
         "charger", "#ffb02e",
         "locker", "#4da3ff",
         "rack", "#b48cff",
+        "moto", "#f472b6",
         "#ffb02e",
       ],
       // Racks number in the thousands — keep their pins smaller.
@@ -289,25 +290,7 @@ map.on("load", async () => {
     },
   });
 
-  // SFMTA motorcycle parking (black-cap meters, grouped per block): mopeds only,
-  // and unclustered: ~330 sites stay readable at city zoom.
-  map.addSource("pev-moto", { type: "geojson", data: { type: "FeatureCollection", features: moto }, promoteId: "id" });
-  map.addLayer({
-    id: "pev-moto",
-    type: "circle",
-    source: "pev-moto",
-    minzoom: 11,
-    layout: { visibility: "none" },
-    paint: {
-      "circle-color": "#f472b6",
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 4, 15, 8],
-      "circle-stroke-width": 2,
-      "circle-stroke-color": "#0c141d",
-    },
-  });
-  syncMotoLayer();
-
-  const clickable = ["pev-pois", "pev-clusters", "pev-moto"];
+  const clickable = ["pev-pois", "pev-clusters"];
   map.on("mousemove", (e) => {
     const over = map.queryRenderedFeatures(e.point, { layers: clickable }).length > 0;
     map.getCanvas().style.cursor = over ? "pointer" : "";
@@ -1009,20 +992,14 @@ map.on("click", (e) => {
   if (ride.active) return;
   // Cluster clicks are the zoom handler's job — don't treat them as empty space.
   if (map.queryRenderedFeatures(e.point, { layers: ["pev-clusters"] }).length) return;
-  if (map.getLayer("pev-moto")) {
-    const m = map.queryRenderedFeatures(e.point, { layers: ["pev-moto"] })[0];
-    if (m) {
-      const [lon, lat] = m.geometry.coordinates;
-      showMotoPopup({ ...m.properties, id: m.id, lat, lon });
-      return;
-    }
-  }
   const feats = map.queryRenderedFeatures(e.point, { layers: ["pev-pois"] });
   if (feats.length) {
     const f = feats[0];
     const p = f.properties || {};
     const ll = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
-    if (p.kind === "locker") {
+    if (p.kind === "moto") {
+      showMotoPopup({ ...p, id: f.id, ...ll });
+    } else if (p.kind === "locker") {
       showBikeLinkPopup({
         id: f.id,
         name: p.name,
@@ -1089,15 +1066,20 @@ function syncNavUI() {
   for (const id of ["pev-pois", "pev-clusters", "pev-cluster-count"]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", state.routeShown ? "none" : "visible");
   }
-  syncMotoLayer();
 }
 
-// Motorcycle parking pins: for mopeds (the only routable motor vehicle),
-// and, like the other pins, out of the way while a route is drawn.
-function syncMotoLayer() {
-  if (!map.getLayer("pev-moto")) return;
-  const show = !state.routeShown && parkKindFits("moto");
-  map.setLayoutProperty("pev-moto", "visibility", show ? "visible" : "none");
+// The map's pins are the parking kinds that fit the vehicle: mopeds see
+// chargers and motorcycle parking, everyone else chargers, BikeLink lockers
+// and bike racks. Swapping the clustered source's data keeps the count
+// bubbles honest (a filter on the pin layer would leave them counting
+// pins that never show).
+let allPois = [];
+function poisForVehicle() {
+  return { type: "FeatureCollection", features: allPois.filter((f) => parkKindFits(f.properties.kind)) };
+}
+function syncPoiKinds() {
+  const src = map.getSource("pev-pois");
+  if (src) src.setData(poisForVehicle());
 }
 
 // Phone bottom sheet: with a route up it collapses to the route summary and

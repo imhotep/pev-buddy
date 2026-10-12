@@ -113,7 +113,8 @@ there instead: a ring and a dashed line mark the real destination, the summary
 says how far the walk is, and arrival announces it ("Cafe Encore is 30 feet
 away"). Picking it again goes back to riding all the way. Mopeds get
 charger and motorcycle-parking tiles instead of lockers and racks, which are
-sized for bikes and scooters; their pink pins show on the map in moped mode.
+sized for bikes and scooters. The map's pins follow the same rule: in moped
+mode, chargers and pink motorcycle-parking pins only.
 
 **Phones start from your location**, as other navigation apps do: with
 location already allowed the start fills in at launch, silently; otherwise the

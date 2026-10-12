@@ -1062,24 +1062,22 @@ def test_mopeds_park_at_chargers_or_motorcycle_parking(page):
     assert [c["kind"] for c in _chips(page)] == ["charger", "locker", "rack"]
 
 
-def test_motorcycle_parking_pins_show_for_mopeds_only(page):
-    vis = "() => map.getLayoutProperty('pev-moto', 'visibility')"
-    page.wait_for_function("() => map.getLayer('pev-moto')")
-    assert page.evaluate(vis) == "none"
+def test_map_pins_are_the_parking_kinds_that_fit_the_vehicle(page):
+    kinds = """() => [...new Set(map.getSource('pev-pois')._data.features.map((f) => f.properties.kind))].sort()"""
+    page.wait_for_function("() => map.getSource('pev-pois')")
+    assert page.evaluate(kinds) == ["charger", "locker"]  # the synthetic bundle has no racks
     page.select_option("#vehicle", "moped")
-    assert page.evaluate(vis) == "visible"
-    # Tapping a site offers to ride there.
+    assert page.evaluate(kinds) == ["charger", "moto"]
+    # Tapping a motorcycle site offers to ride there.
     lon, lat = m_to_lonlat(100, -100)
-    page.evaluate(f"() => map.jumpTo({{ center: [{lon}, {lat}], zoom: 16 }})")
+    page.evaluate(f"() => map.jumpTo({{ center: [{lon}, {lat}], zoom: 17 }})")
     page.wait_for_function("() => !map.isMoving() && map.loaded()")
-    page.wait_for_timeout(200)
+    page.wait_for_timeout(300)
     pt = page.evaluate(f"() => map.project([{lon}, {lat}])")
     box = page.locator("#map").bounding_box()
     page.mouse.click(box["x"] + pt["x"], box["y"] + pt["y"])
     page.wait_for_selector(".maplibregl-popup .bubble-title")
     assert page.text_content(".maplibregl-popup .bubble-title") == "Motorcycle parking"
     assert "3 spaces · free" in page.text_content(".maplibregl-popup .bubble-meta")
-    # Hidden while a route is drawn, like the other pins.
-    _set_trip_m(page, (0, -100), (190, -100))
-    page.wait_for_function("() => state.route")
-    assert page.evaluate(vis) == "none"
+    page.select_option("#vehicle", "ebike_c3")
+    assert page.evaluate(kinds) == ["charger", "locker"]
