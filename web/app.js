@@ -47,6 +47,10 @@ if (IS_MOBILE) {
     showUserLocation: true,
   });
   map.addControl(geolocateControl, "top-right");
+  // The map's own location button fails silently; say why in the trip panel.
+  geolocateControl.on("error", (err) => {
+    showTripStatus(LOCATION_ERRORS[err.code] || "Could not get your location.", true);
+  });
 }
 // MapLibre labels the canvas just "Map" — give assistive tech a real summary.
 // Keyboard pan/zoom (+/-/arrows) is built into the canvas itself.
@@ -810,7 +814,7 @@ function showTripStatus(text, isError = false) {
 
 const LOCATION_ERRORS = {
   1: "Location permission is off for this site. Allow it in your browser's site settings, or search / tap the map instead.",
-  2: "Your position isn't available right now. Check that Location Services are on, or search / tap the map instead.",
+  2: "Your device couldn't find your position. Check that Location Services are on for this browser (and, on a Mac, that Wi-Fi is on), or search / tap the map instead.",
   3: "Timed out finding your location. Try again, or search / tap the map instead.",
 };
 
@@ -834,7 +838,7 @@ function useMyLocation(which, { auto = false, quiet = false } = {}) {
     if (which === "start") locating = false;
     syncTripLabels();
   };
-  navigator.geolocation.getCurrentPosition(
+  locateOnce(
     (pos) => {
       done();
       // Filled in automatically, but the rider picked a start meanwhile.
@@ -855,8 +859,26 @@ function useMyLocation(which, { auto = false, quiet = false } = {}) {
     (err) => {
       done();
       say(LOCATION_ERRORS[err.code] || "Could not get your location. Search or tap the map instead.", true);
+    }
+  );
+}
+
+// One position, precise if possible. A device that can't get a precise fix
+// in time (a Mac has no GPS; a phone indoors) fails with "position
+// unavailable" (on Apple: CoreLocation's kCLErrorLocationUnknown) or a
+// timeout: then ask once more for any position, network-based or recent,
+// which is what puts a laptop on the map in other map apps. A denied
+// permission is final.
+const PRECISE_FIX = { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 };
+const COARSE_FIX = { enableHighAccuracy: false, timeout: 15000, maximumAge: 5 * 60 * 1000 };
+function locateOnce(ok, fail) {
+  navigator.geolocation.getCurrentPosition(
+    ok,
+    (err) => {
+      if (err.code === 1) return fail(err);
+      navigator.geolocation.getCurrentPosition(ok, fail, COARSE_FIX);
     },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    PRECISE_FIX
   );
 }
 
