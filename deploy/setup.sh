@@ -6,6 +6,11 @@
 #   bash deploy/setup.sh           # install or update
 #   bash deploy/setup.sh --sync    # also refresh the data bundle
 #
+# After first install, routine code deploys use the release branch + CI
+# (.github/workflows/deploy.yml) or, on the VPS:
+#   bash deploy/remote-update.sh          # code-only (release branch)
+#   bash deploy/remote-update.sh --sync   # also refresh data
+#
 # Env overrides: APP_DIR (default ~/pev-buddy), PORT (default 8000), REPO.
 set -euo pipefail
 
