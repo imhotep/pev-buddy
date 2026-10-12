@@ -68,12 +68,43 @@ def snap_to_node(
     if d > radius:
         raise SnapError((lon, lat), i, d, radius)
     usable = graph.out_ok[vehicle] if prefer == "start" else graph.in_ok[vehicle]
-    if not usable[i]:
-        cand = np.where(np.asarray(usable, dtype=bool) & (dists <= radius))[0]
-        if cand.size:
-            j = int(cand[np.argmin(dists[cand])])
-            return j, float(dists[j])
-    return i, d
+    cand = np.where(np.asarray(usable, dtype=bool) & (dists <= radius))[0]
+    if not cand.size:
+        return i, d
+    cand = cand[np.argsort(dists[cand], kind="stable")]
+    # Skip junctions in a pocket this vehicle can't get in or out of: the
+    # Sutter-Stockton garage's BikeLink locker snapped to a 64 m stub of
+    # Stockton St whose neighbours are closed to bikes, so no route reached
+    # it. The nearest junction joined to the wider network wins; when none
+    # within reach is (a tiny network), the nearest usable one, as before.
+    for j in cand[: config.SNAP_MAX_CANDIDATES]:
+        if _joined(graph, int(j), vehicle, forward=prefer == "start"):
+            return int(j), float(dists[j])
+    j = int(cand[0])
+    return j, float(dists[j])
+
+
+def _joined(graph: RoadGraph, node: int, vehicle: str, forward: bool) -> bool:
+    """Can `vehicle` ride from `node` (forward) or reach it (backward) to/from
+    more than config.SNAP_POCKET_NODES other junctions? A bounded search: it
+    stops as soon as the answer is yes."""
+    ok = graph.edge_ok[vehicle]
+    frm, to = graph.edge_columns()[:2]
+    nbrs = graph.adj if forward else graph.incoming()
+    seen = {node}
+    stack = [node]
+    while stack:
+        x = stack.pop()
+        for e in nbrs[x]:
+            if not ok[e]:
+                continue
+            y = to[e] if forward else frm[e]
+            if y not in seen:
+                if len(seen) > config.SNAP_POCKET_NODES:
+                    return True
+                seen.add(y)
+                stack.append(y)
+    return False
 
 
 def _scc_reachable(adj: list[set[int]], src: int, dst: int) -> bool:

@@ -626,6 +626,15 @@ class RoadGraph:
     def outgoing(self, node_idx: int) -> list[int]:
         return self.adj[node_idx]
 
+    def incoming(self) -> list[list[int]]:
+        """Per node, the edges that end there (built once, on first use)."""
+        if getattr(self, "_incoming", None) is None:
+            to = np.asarray(self.edge_columns()[1])
+            order = np.argsort(to, kind="stable")
+            bounds = np.searchsorted(to[order], np.arange(len(self.node_coords) + 1))
+            self._incoming = [order[bounds[n] : bounds[n + 1]].tolist() for n in range(len(self.node_coords))]
+        return self._incoming
+
 
 class EdgeTable(Sequence):
     """Columnar edge storage used by load_bundle().

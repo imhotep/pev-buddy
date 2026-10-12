@@ -271,6 +271,11 @@ def edge_duration_s(veh: VehicleType, length_m: float, category: str, road_mph: 
 
 # How far (meters) a start/end point may be from the network before we give up.
 SNAP_RADIUS_M = 200.0
+# Snapping skips junctions joined to no more than this many others for the
+# vehicle (a stub boxed in by streets it may not ride), trying the nearest
+# SNAP_MAX_CANDIDATES within the radius.
+SNAP_POCKET_NODES = 30
+SNAP_MAX_CANDIDATES = 40
 
 # A* / Dijkstra tuning.
 REVERSAL_PENALTY = 4.0  # extra cost factor for an immediate U-turn

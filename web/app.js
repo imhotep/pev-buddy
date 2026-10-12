@@ -565,6 +565,9 @@ function indexPois(features) {
     const list = poiIndex[f.properties.kind];
     if (!list || !f.geometry) continue;
     const [lon, lat] = f.geometry.coordinates;
+    // The map shows pins just past the city line (Daly City, South SF), but
+    // the road network stops at it: never offer one as a place to ride to.
+    if (!inSF(lon, lat)) continue;
     list.push({ id: f.id ?? f.properties.id, lon, lat, props: f.properties });
   }
   syncParking();
