@@ -240,6 +240,72 @@ def test_console_debug_tools(page):
     assert page.evaluate("() => pev.state().routeShown") is True
 
 
+def test_debug_panel_buttons_and_title_taps(ride_page):
+    page = ride_page
+    assert not page.is_visible("#pev-debug-hud")
+    # No console on a phone: five quick taps on the title open the panel.
+    for _ in range(5):
+        page.click("#sidebar header h1")
+    page.wait_for_selector("#pev-debug-hud")
+    route_via_ui(page)
+    page.click("#pev-debug-hud button:text-is(\"Route\")")
+    out = page.text_content("#pev-debug-hud .pev-dbg-out")
+    assert out.startswith("route") and '"miles"' in out and "steps" in out
+    page.click("#pev-debug-hud button:text-is(\"State\")")
+    assert '"routeShown": true' in page.text_content("#pev-debug-hud .pev-dbg-out")
+    # Drive from the panel: a fast simulated ride reaches the destination.
+    page.fill("#pev-debug-hud input", "200")
+    page.click("#pev-debug-hud button:text-is(\"▶ Drive\")")
+    page.wait_for_function("() => ride.arrived", timeout=15000)
+    # Minimize keeps only the bug button; close removes the panel.
+    page.click("#pev-debug-hud .pev-dbg-min")
+    assert not page.is_visible("#pev-debug-hud .pev-dbg-readout")
+    page.click("#pev-debug-hud .pev-dbg-min")
+    # Close sits in the top-right corner.
+    panel, close = rect(page, "#pev-debug-hud"), rect(page, "#pev-debug-hud .pev-dbg-close")
+    assert panel["right"] - close["right"] < 20 and close["top"] - panel["top"] < 20, (panel, close)
+    page.click("#pev-debug-hud .pev-dbg-close")
+    assert not page.is_visible("#pev-debug-hud")
+
+
+def test_debug_panel_drags_stays_on_screen_and_remembers(page):
+    page.evaluate("() => pev.hud(true)")
+    grip = page.locator("#pev-debug-hud .pev-dbg-grip")
+    g = grip.bounding_box()
+    gx, gy = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
+    page.mouse.move(gx, gy)
+    page.mouse.down()
+    page.mouse.move(gx + 300, gy + 200, steps=8)
+    page.mouse.up()
+    box = rect(page, "#pev-debug-hud")
+    assert abs(box["left"] - (g["x"] - 4 + 300)) < 20 and box["top"] > 150, box
+    # Flung far off screen: it stops at the edge.
+    g = grip.bounding_box()
+    page.mouse.move(g["x"] + 5, g["y"] + 5)
+    page.mouse.down()
+    page.mouse.move(5000, 5000, steps=4)
+    page.mouse.up()
+    box = rect(page, "#pev-debug-hud")
+    assert box["right"] <= 1280 + 1 and box["top"] < 800, box
+    # Remembered across a reload.
+    page.reload()
+    page.wait_for_selector("#pev-debug-hud")
+    again = rect(page, "#pev-debug-hud")
+    assert abs(again["left"] - box["left"]) < 2 and abs(again["top"] - box["top"]) < 2
+    # Minimized it can still be moved: the grip stays next to the bug button.
+    page.click("#pev-debug-hud .pev-dbg-min")
+    assert page.is_visible("#pev-debug-hud .pev-dbg-grip")
+    assert not page.is_visible("#pev-debug-hud .pev-dbg-readout")
+    g = grip.bounding_box()
+    page.mouse.move(g["x"] + 5, g["y"] + 5)
+    page.mouse.down()
+    page.mouse.move(60, 300, steps=6)
+    page.mouse.up()
+    small = rect(page, "#pev-debug-hud")
+    assert small["left"] < 100 and 250 < small["top"] < 350, small
+    page.evaluate("() => pev.hud(false)")
+
+
 def test_console_drive_rides_the_route_to_arrival(ride_page):
     page = ride_page
     route_via_ui(page)
@@ -900,3 +966,184 @@ def test_use_my_location_reports_failures_in_page(page):
     page.wait_for_function("() => document.getElementById('trip-status').textContent.includes('permission')")
     assert page.eval_on_selector("#trip-status", "el => el.classList.contains('error')")
     assert page.text_content("#start-label").startswith("Not set")
+
+
+# ------------------------------------------------------- park near destination
+
+
+def _set_trip_m(page, start, end, end_label="Cafe"):
+    slon, slat = m_to_lonlat(*start)
+    elon, elat = m_to_lonlat(*end)
+    page.evaluate(
+        f"""() => {{
+          setStart({{ kind: 'coords', lat: {slat}, lon: {slon}, label: 'Test start' }});
+          setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: '{end_label}' }});
+        }}"""
+    )
+
+
+def _chips(page):
+    return page.evaluate(
+        """() => [...document.querySelectorAll('#park-near .park-chip')].map((b) => ({
+             kind: b.dataset.kind, text: b.textContent.trim(), disabled: b.disabled,
+             pressed: b.getAttribute('aria-pressed') === 'true' }))"""
+    )
+
+
+def test_park_near_chips_route_to_parking_and_back(page):
+    assert not page.is_visible("#park-near")
+    # Destination 10 m short of F: the synthetic BikeLink locker sits on F,
+    # the charger on A (~220 m away); there are no racks.
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    chips = {c["kind"]: c for c in _chips(page)}
+    assert "ft" in chips["locker"]["text"] and not chips["locker"]["disabled"]
+    assert not chips["charger"]["disabled"]
+    assert chips["rack"]["disabled"] and "none within 1 mi" in chips["rack"]["text"]
+
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.route && state.route.end_label !== 'Cafe'")
+    assert page.evaluate("() => [state.endRef.poi, state.parkFor.label, state.parkKind]") == ["locker", "Cafe", "locker"]
+    assert "Then walk" in page.text_content("#route-summary")
+    assert page.is_visible(".goal-ring")
+    assert page.evaluate("() => map.getSource('pev-walk')._data.features.length") == 1
+    assert {c["kind"]: c["pressed"] for c in _chips(page)}["locker"] is True
+
+    # The same chip again: back to riding all the way.
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.endRef.label === 'Cafe' && !state.parkFor")
+    assert not page.is_visible(".goal-ring")
+    assert page.evaluate("() => map.getSource('pev-walk')._data.features.length") == 0
+
+    # A new destination drops the parking choice; Reset clears the row.
+    page.click('.park-chip[data-kind="charger"]')
+    page.wait_for_function("() => state.parkKind === 'charger'")
+    _set_trip_m(page, (0, -100), (100, -100), end_label="Elsewhere")
+    assert page.evaluate("() => [state.parkFor, state.parkKind, state.endRef.label]") == [None, None, "Elsewhere"]
+    page.click("#reset-route")
+    assert not page.is_visible("#park-near")
+
+
+def test_no_park_chips_when_the_destination_is_a_parking_spot(page):
+    lon, lat = m_to_lonlat(200, -100)
+    page.evaluate(
+        f"() => setEnd({{ kind: 'coords', lat: {lat}, lon: {lon}, label: 'Bike rack', poi: 'rack' }})"
+    )
+    assert not page.is_visible("#park-near")
+
+
+def test_arrival_mentions_the_walk_to_the_real_destination(ride_page):
+    page = ride_page
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.parkKind === 'locker' && state.route.end_label !== 'Cafe'")
+    page.click("#start-ride")
+    fix_at(page, 200, -100)
+    page.wait_for_function("() => ride.arrived")
+    assert "Cafe is" in page.text_content("#ride-instruction")
+    assert any("Cafe is" in t and "feet" in t for t in page.evaluate("() => window.__spoken"))
+
+
+# ------------------------------------------------- phones: start from my location
+
+# Headless Chrome reports a fine pointer even with touch emulation; the app
+# decides "phone" from (pointer: coarse), so phone tests answer that query.
+COARSE_POINTER = """
+(() => {
+  const real = window.matchMedia.bind(window);
+  window.matchMedia = (q) => (q === "(pointer: coarse)" ? { ...real(q), matches: true, media: q } : real(q));
+})();
+"""
+
+
+def test_phone_start_defaults_to_my_location_when_a_destination_is_picked(open_app):
+    page = open_app(390, 844, init_scripts=[COARSE_POINTER, GEO_AND_SPEECH_MOCK], is_mobile=True, has_touch=True)
+    # Nothing is asked at launch (permission not granted yet): the start reads
+    # as "your location" and the destination is the row asked for first.
+    assert page.evaluate("() => state.startRef") is None
+    assert "Your location" in page.text_content("#start-label")
+    assert page.evaluate("() => document.getElementById('end-row').classList.contains('needs-input')")
+    # Picking a destination fills the start from the device and routes.
+    lon, lat = m_to_lonlat(0, 0)
+    page.evaluate(f"() => __emitFix({lon}, {lat})")
+    elon, elat = m_to_lonlat(200, -100)
+    page.evaluate(f"() => setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: 'Somewhere' }})")
+    page.wait_for_function("() => state.startRef && state.route")
+    assert page.evaluate("() => state.startRef.label") == "My location"
+
+
+def test_phone_start_from_location_never_overrides_a_chosen_start(open_app):
+    page = open_app(390, 844, init_scripts=[COARSE_POINTER, GEO_AND_SPEECH_MOCK], is_mobile=True, has_touch=True)
+    # No fix arrives: the lookup fails, the rider is told, and can set a start.
+    elon, elat = m_to_lonlat(200, -100)
+    page.evaluate(f"() => setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: 'Somewhere' }})")
+    page.wait_for_function("() => !document.getElementById('trip-status').classList.contains('hidden') && !locating")
+    assert page.evaluate("() => state.startRef") is None
+    assert page.evaluate("() => document.getElementById('start-row').classList.contains('needs-input')")
+    slon, slat = m_to_lonlat(0, -100)
+    page.evaluate(f"() => setStart({{ kind: 'coords', lat: {slat}, lon: {slon}, label: 'Chosen' }})")
+    page.wait_for_function("() => state.route")
+    assert page.evaluate("() => state.startRef.label") == "Chosen"
+
+
+def test_phone_with_location_allowed_fills_the_start_at_launch(open_app):
+    lon, lat = m_to_lonlat(0, 0)
+    page = open_app(
+        390, 844, init_scripts=[COARSE_POINTER], is_mobile=True, has_touch=True,
+        permissions=["geolocation"], geolocation={"latitude": lat, "longitude": lon},
+    )
+    page.wait_for_function("() => state.startRef", timeout=10000)
+    assert page.evaluate("() => state.startRef.label") == "My location"
+    assert page.is_hidden("#trip-status")
+
+
+def test_desktop_never_fills_the_start_by_itself(open_app):
+    lon, lat = m_to_lonlat(0, 0)
+    page = open_app(permissions=["geolocation"], geolocation={"latitude": lat, "longitude": lon})
+    elon, elat = m_to_lonlat(200, -100)
+    page.evaluate(f"() => setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: 'Somewhere' }})")
+    page.wait_for_timeout(500)
+    assert page.evaluate("() => state.startRef") is None
+
+
+def test_mopeds_park_at_chargers_or_motorcycle_parking(page):
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    assert [c["kind"] for c in _chips(page)] == ["charger", "locker", "rack"]
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.parkKind === 'locker'")
+    # Switching to a moped: the locker no longer fits, so the route goes back
+    # to the real destination; lockers and racks give way to motorcycle parking.
+    page.select_option("#vehicle", "moped")
+    page.wait_for_function("() => !state.parkKind && state.endRef.label === 'Cafe'")
+    assert [c["kind"] for c in _chips(page)] == ["charger", "moto"]
+    assert not page.is_visible(".goal-ring")
+    page.click('.park-chip[data-kind="moto"]')
+    page.wait_for_function("() => state.parkKind === 'moto' && state.route.end_label !== 'Cafe'")
+    assert page.evaluate("() => state.endRef.label") == "Motorcycle parking · Side St"
+    # Back on a scooter: the motorcycle spot doesn't fit, the bike tiles return.
+    page.select_option("#vehicle", "scooter")
+    page.wait_for_function("() => !state.parkKind")
+    assert [c["kind"] for c in _chips(page)] == ["charger", "locker", "rack"]
+
+
+def test_map_pins_are_the_parking_kinds_that_fit_the_vehicle(page):
+    kinds = """() => [...new Set(map.getSource('pev-pois')._data.features.map((f) => f.properties.kind))].sort()"""
+    page.wait_for_function("() => map.getSource('pev-pois')")
+    assert page.evaluate(kinds) == ["charger", "locker"]  # the synthetic bundle has no racks
+    page.select_option("#vehicle", "moped")
+    assert page.evaluate(kinds) == ["charger", "moto"]
+    # Tapping a motorcycle site offers to ride there.
+    lon, lat = m_to_lonlat(100, -100)
+    page.evaluate(f"() => map.jumpTo({{ center: [{lon}, {lat}], zoom: 17 }})")
+    page.wait_for_function("() => !map.isMoving() && map.loaded()")
+    page.wait_for_timeout(300)
+    pt = page.evaluate(f"() => map.project([{lon}, {lat}])")
+    box = page.locator("#map").bounding_box()
+    page.mouse.click(box["x"] + pt["x"], box["y"] + pt["y"])
+    page.wait_for_selector(".maplibregl-popup .bubble-title")
+    assert page.text_content(".maplibregl-popup .bubble-title") == "Motorcycle parking"
+    assert "3 spaces · free" in page.text_content(".maplibregl-popup .bubble-meta")
+    page.select_option("#vehicle", "ebike_c3")
+    assert page.evaluate(kinds) == ["charger", "locker"]

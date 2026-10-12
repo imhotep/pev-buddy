@@ -1,6 +1,7 @@
 import pytest
 
 from conftest import m_to_lonlat, road_features, make_road_graph
+from pev_buddy import routing
 from pev_buddy.routing import RouteError, SnapError, find_route
 
 
@@ -130,3 +131,34 @@ def test_start_equals_end(graph):
     r = find_route(graph, *a, *a, vehicle="scooter")
     assert r.distance_m == 0.0
     assert r.edge_idxs == []
+
+
+def test_snap_skips_a_pocket_the_vehicle_cannot_leave(monkeypatch):
+    # K hangs off H, which only the 40 mph road (barred to e-scooters) and the
+    # freeway reach: for a scooter H-K is a two-junction pocket. A destination
+    # nearest K must snap to the nearest junction joined to the network.
+    from conftest import NODES, _seg, m_to_lonlat, road_features
+    from pev_buddy import config
+    from pev_buddy.graph import RoadGraph
+
+    feats = road_features() + [
+        _seg("s-pocket", "Pocket Lane", "residential", [(-100, 0), (-40, 40)], conns=[["conn-H", 0.0], ["conn-K", 1.0]])
+    ]
+    nodes = {**NODES, "K": (-40, 40)}
+    g = RoadGraph()
+    g.build({"type": "FeatureCollection", "features": feats}, {f"conn-{n}": list(m_to_lonlat(*p)) for n, p in nodes.items()})
+    alon, alat = m_to_lonlat(200, -100)
+    klon, klat = m_to_lonlat(-35, 40)
+
+    # Without the pocket check (every candidate "too small"): nearest usable
+    # junction, K, and no route.
+    monkeypatch.setattr(config, "SNAP_POCKET_NODES", 10_000)
+    with pytest.raises(routing.RouteError):
+        routing.find_route(g, alon, alat, klon, klat, vehicle="scooter")
+
+    monkeypatch.setattr(config, "SNAP_POCKET_NODES", 3)
+    r = routing.find_route(g, alon, alat, klon, klat, vehicle="scooter")
+    assert r.end_node == g.node_index["conn-A"]
+    # A moped may ride the 40 mph road: K is no pocket for it.
+    r = routing.find_route(g, alon, alat, klon, klat, vehicle="moped")
+    assert r.end_node == g.node_index["conn-K"]

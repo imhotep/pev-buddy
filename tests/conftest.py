@@ -187,6 +187,22 @@ def write_synth_bundle(data):
             }
         )
     )
+    mlon, mlat = m_to_lonlat(100, -100)
+    (data / "motoparking.geojson").write_bytes(
+        orjson.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "id": "moto-1-on",
+                        "properties": {"name": "Side St", "address": "10 Side St", "spaces": 3, "metered": 0, "offstreet": False},
+                        "geometry": {"type": "Point", "coordinates": [mlon, mlat]},
+                    }
+                ],
+            }
+        )
+    )
     table = pa.table(
         {
             "street": ["MAIN ST", "SIDE ST"],

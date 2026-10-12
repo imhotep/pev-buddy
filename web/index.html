@@ -15,14 +15,22 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <!-- style.css comes after maplibre-gl.css so our popup overrides win at equal specificity -->
-  <link rel="stylesheet" href="style.css?v=41" />
+  <link rel="stylesheet" href="style.css?v=51" />
 </head>
 <body>
   <aside id="sidebar">
     <!-- Phones only: collapses/expands the bottom sheet once a route is up -->
     <button id="sheet-toggle" class="sheet-toggle hidden" aria-expanded="true">Show map</button>
     <header>
-      <h1>PEV Buddy</h1>
+      <h1>
+        <!-- Kick scooter: deck, stem and handlebar, two wheels. -->
+        <svg class="brand-icon" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
+          <path d="M22 3h4M24 3l-3 15H8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="7" cy="19" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/>
+          <circle cx="25" cy="19" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/>
+        </svg>
+        PEV Buddy
+      </h1>
       <p class="tagline">Turn-by-turn navigation for e-bikes, e-scooters &amp; mopeds in San Francisco — with chargers, lockers &amp; racks on the map.</p>
     </header>
 
@@ -55,6 +63,12 @@
       <div id="trip-status" class="trip-status hidden" role="status" aria-live="polite"></div>
       <button id="reset-route" class="mini"><span aria-hidden="true">↺</span> Reset trip</button>
       <div id="route-summary" class="hidden" aria-live="polite"></div>
+      <!-- Park near the destination: ride to the nearest charger / locker /
+           rack instead, and walk the rest. Filled in by renderParkNear(). -->
+      <div id="park-near" class="park-near hidden" role="group" aria-labelledby="park-near-title">
+        <div id="park-near-title" class="trip-caption">Park near destination</div>
+        <div class="park-chips"></div>
+      </div>
       <div id="route-actions" class="route-actions hidden">
         <button id="start-ride" class="primary"><span aria-hidden="true">▶</span> Start ride</button>
         <button id="show-steps" class="secondary" aria-expanded="false" aria-controls="steps-drawer">Steps</button>
@@ -81,7 +95,7 @@
       <ul>
         <li>Set a <b>start</b> and a <b>destination</b>: use your current location, search, or tap the map and choose <b>Start here</b> / <b>Go here</b>. Drag either pin to adjust.</li>
         <li>Pick your vehicle type — routes and speed rules follow California law for that vehicle.</li>
-        <li>Map pins: <span class="legend-dot amber" aria-hidden="true"></span>chargers · <span class="legend-dot blue" aria-hidden="true"></span>BikeLink lockers · <span class="legend-dot violet" aria-hidden="true"></span>bike racks. Tap one to navigate there.</li>
+        <li>Map pins: <span class="legend-dot amber" aria-hidden="true"></span>chargers · <span class="legend-dot blue" aria-hidden="true"></span>BikeLink lockers · <span class="legend-dot violet" aria-hidden="true"></span>bike racks · <span class="legend-dot pink" aria-hidden="true"></span>motorcycle parking (mopeds). Tap one to navigate there.</li>
       </ul>
       <label class="welcome-again"><input type="checkbox" id="welcome-never" /> Don't show this again</label>
       <button id="welcome-close">Got it</button>
@@ -120,8 +134,8 @@
     </div>
     <ol id="steps"></ol>
   </div>
-  <script src="app.js?v=41"></script>
+  <script src="app.js?v=51"></script>
   <!-- Console developer tools (pev.help()); idle until called. -->
-  <script src="debug.js?v=41"></script>
+  <script src="debug.js?v=51"></script>
 </body>
 </html>
