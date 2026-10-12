@@ -173,7 +173,7 @@ def find_route(
             continue  # stale entry
         if node == end:
             # with an admissible heuristic, the first popped goal state is optimal
-            return _reconstruct(graph, parent, state, start, end, start_d, end_d)
+            return _reconstruct(graph, parent, state, start, end, start_d, end_d, veh)
 
         for e in graph.adj[node]:
             if not ok[e]:
@@ -213,6 +213,7 @@ def _reconstruct(
     end: int,
     start_d: float,
     end_d: float,
+    veh: config.VehicleType,
 ) -> RouteResult:
     edges: list[int] = []
     state = goal
@@ -225,24 +226,26 @@ def _reconstruct(
 
     path: list[list[float]] = []
     total = 0.0
+    duration = 0.0
     stats: dict[str, dict] = {}
     for i, e in enumerate(edges):
         geom = graph.edge_geometry(e)
         for c in geom if i == 0 else geom[1:]:
             if not path or path[-1] != c:
                 path.append(c)
-        _a, _b, _s, _h, length, category, _eff, posted = graph.edges[e]
+        _a, _b, _s, _h, length, category, eff, posted = graph.edges[e]
         total += length
+        # Per-edge ETA from vehicle cap x road limit (was a flat 15 mph).
+        duration += config.edge_duration_s(veh, length, category, eff)
         st = stats.setdefault(category, {"distance_m": 0.0, "max_speed_mph": None})
         st["distance_m"] += length
         if posted is not None:
             st["max_speed_mph"] = max(st["max_speed_mph"] or 0, posted)
-    speed_mps = config.AVG_SPEED_MPH * 0.44704
     return RouteResult(
         edge_idxs=edges,
         path=path,
         distance_m=total,
-        duration_s=total / speed_mps if speed_mps else 0.0,
+        duration_s=duration,
         start_node=start,
         end_node=end,
         start_snap_m=start_d,

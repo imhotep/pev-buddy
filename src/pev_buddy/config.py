@@ -192,8 +192,44 @@ COST_PROFILES = {
 }
 CATEGORIES = ("bike_lane", "living_street", "sidewalk", "quiet", "shared", "arterial")
 
-# Assumed cruising speed for ETA, mph (all vehicle types).
+# --- ETA model ---------------------------------------------------------------
+# Per-edge travel speed = min(vehicle speed cap, road effective limit)
+#                         * ETA_REALISM_FACTOR
+# The factor turns a legal cap into an urban *average*: SF's short blocks mean
+# frequent stop signs, signals, and yielding, so riders spend a large share of
+# each block accelerating/braking below the cap. 0.75 is the conservative end
+# of the 0.75-0.85 band (an ETA that is slightly long is better than one that
+# is optimistic for a battery-limited vehicle); hills are not modeled yet.
+ETA_REALISM_FACTOR = 0.75
+
+# Sidewalk connectors are walk-your-vehicle segments: walking pace.
+SIDEWALK_WALK_MPH = 3.0
+
+# Fallback cap for a routable vehicle with no speed_limit_mph (none today).
 AVG_SPEED_MPH = 15.0
+
+MPH_TO_MPS = 0.44704
+
+
+def travel_speed_mph(veh: VehicleType, category: str, road_mph: float | None) -> float:
+    """Expected average speed (mph) for `veh` on one edge.
+
+    Sidewalks are walked; everything else rides at
+    min(vehicle cap, road effective limit) scaled by ETA_REALISM_FACTOR.
+    """
+    if category == "sidewalk":
+        return SIDEWALK_WALK_MPH
+    cap = veh.speed_limit_mph or AVG_SPEED_MPH
+    if road_mph is not None and road_mph > 0:
+        cap = min(cap, road_mph)
+    return cap * ETA_REALISM_FACTOR
+
+
+def edge_duration_s(veh: VehicleType, length_m: float, category: str, road_mph: float | None) -> float:
+    """Seconds to traverse `length_m` of an edge (see travel_speed_mph)."""
+    mph = travel_speed_mph(veh, category, road_mph)
+    return length_m / (mph * MPH_TO_MPS) if mph > 0 else 0.0
+
 
 # How far (meters) a start/end point may be from the network before we give up.
 SNAP_RADIUS_M = 200.0
