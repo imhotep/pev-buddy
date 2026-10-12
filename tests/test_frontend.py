@@ -220,6 +220,34 @@ def test_station_popup_and_navigate(page):
     assert page.text_content("#end-label") == "Test Charger"
 
 
+def test_console_debug_tools(page):
+    # Idle until called: no HUD on a normal load.
+    assert page.evaluate("() => typeof pev.help") == "function"
+    assert not page.is_visible("#pev-debug-hud")
+    assert page.evaluate("() => pev.hud()") == "HUD on"
+    page.wait_for_timeout(400)
+    assert "dragPan" in page.text_content("#pev-debug-hud")
+    # Remembered across reloads, and switched off cleanly.
+    page.reload()
+    page.wait_for_selector("#map-loading", state="detached", timeout=20000)
+    page.wait_for_selector("#pev-debug-hud")
+    assert page.evaluate("() => pev.hud()") == "HUD off"
+    assert not page.is_visible("#pev-debug-hud")
+
+    route_via_ui(page)
+    summary = page.evaluate("() => pev.route()")
+    assert summary["miles"] > 0 and "segment_stats" in summary
+    assert page.evaluate("() => pev.state().routeShown") is True
+
+
+def test_console_drive_rides_the_route_to_arrival(ride_page):
+    page = ride_page
+    route_via_ui(page)
+    page.evaluate("() => pev.drive(200)")  # ~90 m/s: the 300 m route in a few ticks
+    page.wait_for_function("() => ride.arrived", timeout=15000)
+    assert page.get_attribute("#ride-banner", "data-state") == "arrived"
+
+
 def test_route_summary_shows_climb_only_when_there_is_one(page):
     # The synthetic bundle has no elevation data: no climb figure at all.
     route_via_ui(page)
