@@ -184,8 +184,42 @@ def find_walk(
         for c in geom:
             if not path or path[-1] != c:
                 path.append(c)
-    distance = best[end]
+    # The search runs junction to junction, but the parking spot and the
+    # destination are usually mid-block: the walk would overshoot to the
+    # corner and come back. Cut it where it passes closest to each end.
+    path = _trim_to_ends(path, (start_lon, start_lat), (end_lon, end_lat))
+    distance = geo.linestring_length_m([tuple(c) for c in path]) if len(path) > 1 else 0.0
     return WalkResult(path=path, distance_m=distance, duration_s=distance / (config.WALK_MPH * config.MPH_TO_MPS))
+
+
+def _closest_on_path(path: list[list[float]], pt: tuple[float, float], lo: int = 0, hi: int | None = None) -> tuple[int, list[float]]:
+    """(segment index i, point) of the point on path[lo..hi] nearest pt,
+    lying on segment path[i] -> path[i + 1]. Local flat projection: the
+    segments are a few metres to a few hundred long."""
+    hi = len(path) - 1 if hi is None else hi
+    kx = math.cos(math.radians(pt[1]))
+    best = (float("inf"), lo, list(path[lo]))
+    for i in range(lo, max(lo, hi)):
+        (ax, ay), (bx, by) = path[i], path[i + 1]
+        dx, dy = (bx - ax) * kx, by - ay
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((pt[0] - ax) * kx * dx + (pt[1] - ay) * dy) / L2))
+        px, py = ax + (bx - ax) * t, ay + (by - ay) * t
+        d = ((px - pt[0]) * kx) ** 2 + (py - pt[1]) ** 2
+        if d < best[0]:
+            best = (d, i, [px, py])
+    return best[1], best[2]
+
+
+def _trim_to_ends(path: list[list[float]], start: tuple[float, float], end: tuple[float, float]) -> list[list[float]]:
+    if len(path) < 2:
+        return path
+    ei, ept = _closest_on_path(path, end)
+    si, spt = _closest_on_path(path, start, 0, ei + 1)
+    if si == ei:
+        # Both cuts on one segment: keep the piece between them.
+        return [spt, ept] if spt != ept else [spt]
+    return [spt, *path[si + 1 : ei + 1], ept]
 
 
 def _scc_reachable(adj: list[set[int]], src: int, dst: int) -> bool:

@@ -654,8 +654,11 @@ let walkRequest = null;
 function parkWalkM() {
   const { parkFor: g, endRef: e } = state;
   if (!g || !e) return 0;
-  if (walk && walk.key === walkKey()) return walk.distance_m;
-  return metersBetween(g.lat, g.lon, e.lat, e.lon);
+  const straight = metersBetween(g.lat, g.lon, e.lat, e.lon);
+  // Both ends can meet the street at one point (a rack outside the door):
+  // never report less than the straight line.
+  if (walk && walk.key === walkKey()) return Math.max(walk.distance_m, straight);
+  return straight;
 }
 function walkKey() {
   const { parkFor: g, endRef: e } = state;

@@ -51,3 +51,19 @@ def test_walk_api(client):
     assert body["distance_m"] == pytest.approx(50, abs=1) and len(body["path"]) >= 2
     far = client.post("/api/walk", json={"start": {"lat": alat, "lon": alon}, "end": {"lat": alat + 1, "lon": alon}})
     assert far.status_code == 400
+
+
+def test_walk_stops_beside_a_mid_block_destination():
+    # A destination mid-block on Main Street (between B and C, nearer C):
+    # the junction search ends at C, so without trimming the walk would go
+    # past the destination to C and come back.
+    g = make_road_graph()
+    alon, alat = m_to_lonlat(0, 0)
+    dlon, dlat = m_to_lonlat(160, 5)
+    w = routing.find_walk(g, alon, alat, dlon, dlat)
+    assert w.distance_m == pytest.approx(160, abs=2)
+    flon, flat = m_to_lonlat(160, 0)
+    assert w.path[-1] == pytest.approx([flon, flat], abs=2e-5)  # on the street, beside it
+    # ...and likewise at the start: from mid-block back to A.
+    back = routing.find_walk(g, dlon, dlat, alon, alat)
+    assert back.distance_m == pytest.approx(160, abs=2)
