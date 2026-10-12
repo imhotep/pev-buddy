@@ -304,14 +304,22 @@ browser console (on an iPhone: Safari → Develop → your iPhone → the page):
 | `pev.resetApp()` | drops the service worker and caches, then reloads (a phone stuck on an old build) |
 
 **The debug panel** works without a console: tap the **PEV Buddy** title five
-times (also in the installed app), or add `?debug` to the URL. It shows a
-live readout (viewport and scroll, map size, zoom and padding, active gesture
-handlers, the last touch gesture and whether the map or iOS took it, recent
-camera calls and who made them, the last console warning) and buttons for
-**Drive** (with a speed box), **Stop**, **Route**, **State**, **Copy** (the
-readout and the last result, to paste into a bug report), **Reset app**,
-minimize (🐞) and close. Drag the **⠿** grip to move it out of the way, minimized
-too; it stays on screen and keeps its place across reloads.
+times (also in the installed app), or add `?debug` to the URL. Its tools are
+grouped, each group saying what its buttons do:
+
+- **Simulate a ride:** **▶ Drive** at the speed in the mph box (rides the
+  current route with fake GPS, to arrival) and **■ Stop**.
+- **Inspect:** **Route** (summary and every step), **State** (trip, ride and
+  camera), **Copy** (the readout and the last result, to paste into a bug
+  report). Results show in the panel.
+- **App:** **Reset app** (clears the cached app and reloads).
+- **Live readout** (collapsible): viewport and scroll, map size, zoom and
+  padding, active gesture handlers, the last touch gesture and whether the map
+  or iOS took it, recent camera calls and who made them, the last console
+  warning.
+
+Drag the **⠿** grip to move the panel (minimized too); it stays on screen and
+keeps its place across reloads. **🐞** minimizes it and **✕** closes it.
 
 ## Deploy
 

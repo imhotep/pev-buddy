@@ -54,26 +54,40 @@
   // expand button stay, so it can still be moved out of the map's way.
   const PANEL_CSS = `
 #pev-debug-hud { position: fixed; left: 4px; top: calc(env(safe-area-inset-top) + 4px); z-index: 99999;
-  width: min(92vw, 430px); max-height: 70vh; display: flex; flex-direction: column; gap: 4px; padding: 6px;
-  background: rgba(0, 0, 0, 0.88); color: #7f7; font: 10px/1.3 ui-monospace, Menlo, monospace;
-  border: 1px solid #2f4f2f; border-radius: 8px; }
-#pev-debug-hud.min { width: auto; }
-#pev-debug-hud.min > :not(.pev-dbg-bar),
-#pev-debug-hud.min .pev-dbg-bar > :not(.pev-dbg-min):not(.pev-dbg-grip) { display: none; }
-#pev-debug-hud .pev-dbg-bar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding-right: 34px; }
-#pev-debug-hud.min .pev-dbg-bar { padding-right: 0; }
-/* Close sits in the panel's top-right corner, apart from the tools. */
-#pev-debug-hud .pev-dbg-close { position: absolute; top: 6px; right: 6px; min-width: 28px; padding: 4px 0; }
-#pev-debug-hud button, #pev-debug-hud input { font: 11px ui-monospace, Menlo, monospace; color: #cfe; background: #12261a;
-  border: 1px solid #2f5f3f; border-radius: 5px; padding: 4px 7px; min-height: 28px; }
-#pev-debug-hud input { width: 3.2em; padding: 4px; }
-#pev-debug-hud button:active { background: #234; }
-#pev-debug-hud pre { margin: 0; white-space: pre-wrap; overflow: auto; }
-#pev-debug-hud .pev-dbg-out { color: #cde; border-top: 1px solid #2f4f2f; padding-top: 4px; max-height: 32vh; }
-#pev-debug-hud .pev-dbg-readout { pointer-events: none; }
+  width: min(94vw, 400px); max-height: 75vh; overflow: auto; display: flex; flex-direction: column; gap: 8px;
+  padding: 8px 10px 10px; box-sizing: border-box;
+  background: rgba(8, 14, 10, 0.94); color: #cfe; font: 12px/1.35 -apple-system, system-ui, sans-serif;
+  border: 1px solid #2f4f2f; border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+/* Sections keep their height; the panel scrolls when they don't fit. */
+#pev-debug-hud > * { flex-shrink: 0; }
+#pev-debug-hud.min { width: auto; padding: 6px; }
+#pev-debug-hud.min > :not(.pev-dbg-head),
+#pev-debug-hud.min .pev-dbg-title, #pev-debug-hud.min .pev-dbg-close { display: none; }
+/* Header: grip, title, minimize, and close in the top-right corner. */
+#pev-debug-hud .pev-dbg-head { display: flex; align-items: center; gap: 6px; }
+#pev-debug-hud .pev-dbg-title { flex: 1; font-weight: 700; color: #7f7; letter-spacing: 0.3px; }
 #pev-debug-hud .pev-dbg-grip { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
-  color: #9c9; font-size: 16px; line-height: 1; padding: 4px 6px; border-radius: 5px; }
-#pev-debug-hud.dragging .pev-dbg-grip { cursor: grabbing; background: #234; }`;
+  color: #9c9; font-size: 18px; line-height: 1; padding: 6px 8px; border-radius: 6px; }
+#pev-debug-hud.dragging .pev-dbg-grip { cursor: grabbing; background: #234; }
+#pev-debug-hud .pev-dbg-min, #pev-debug-hud .pev-dbg-close { min-width: 36px; padding: 0; }
+/* Sections: a caption, the buttons, and one line saying what they do. */
+#pev-debug-hud section { border-top: 1px solid #23402b; padding-top: 8px; }
+#pev-debug-hud .pev-dbg-cap { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: #8fb39a; margin-bottom: 6px; }
+#pev-debug-hud .pev-dbg-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#pev-debug-hud .pev-dbg-help { margin-top: 6px; color: #9ab; font-size: 11.5px; }
+#pev-debug-hud .pev-dbg-help b { color: #cfe; font-weight: 600; }
+#pev-debug-hud button { font: 600 13px -apple-system, system-ui, sans-serif; color: #e6fff0; background: #16301f;
+  border: 1px solid #2f5f3f; border-radius: 8px; padding: 0 14px; min-height: 38px; cursor: pointer; }
+#pev-debug-hud button:active { background: #24503a; }
+#pev-debug-hud .pev-dbg-go { background: #1f6b3d; border-color: #2f8f55; }
+#pev-debug-hud .pev-dbg-danger { background: #3a1616; border-color: #7f2a2a; color: #fcc; }
+#pev-debug-hud label.pev-dbg-speed { display: inline-flex; align-items: center; gap: 4px; color: #9ab; }
+#pev-debug-hud input { font: 600 13px -apple-system, system-ui, sans-serif; color: #e6fff0; background: #0e1d14;
+  border: 1px solid #2f5f3f; border-radius: 8px; width: 4.2em; min-height: 38px; padding: 0 6px; box-sizing: border-box; }
+#pev-debug-hud details summary { cursor: pointer; }
+#pev-debug-hud pre { margin: 0; white-space: pre-wrap; overflow: auto; font: 10.5px/1.35 ui-monospace, Menlo, monospace; }
+#pev-debug-hud .pev-dbg-readout { color: #7f7; pointer-events: none; margin-top: 6px; }
+#pev-debug-hud .pev-dbg-out { color: #cde; background: #0b1610; border-radius: 6px; padding: 6px; max-height: 30vh; }`;
 
   let output = null; // the panel's output box
   function show(title, value) {
@@ -92,56 +106,96 @@
       style.textContent = PANEL_CSS;
       document.head.appendChild(style);
     }
-    const panel = document.createElement("div");
-    panel.id = "pev-debug-hud";
-    panel.setAttribute("role", "region");
-    panel.setAttribute("aria-label", "Debug panel");
-    const bar = document.createElement("div");
-    bar.className = "pev-dbg-bar";
+    const el = (tag, cls, text) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = text;
+      return n;
+    };
     const button = (label, title, fn, cls) => {
-      const b = document.createElement("button");
+      const b = el("button", cls, label);
       b.type = "button";
-      b.textContent = label;
       b.title = title;
-      if (cls) b.className = cls;
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         fn();
       });
-      bar.appendChild(b);
       return b;
     };
-    const mph = document.createElement("input");
+    // One group of tools: caption, buttons, and what they do.
+    const section = (caption, controls, help) => {
+      const sec = el("section");
+      const row = el("div", "pev-dbg-row");
+      row.append(...controls);
+      const h = el("div", "pev-dbg-help");
+      h.innerHTML = help;
+      sec.append(el("div", "pev-dbg-cap", caption), row, h);
+      return sec;
+    };
+
+    const panel = el("div");
+    panel.id = "pev-debug-hud";
+    panel.setAttribute("role", "region");
+    panel.setAttribute("aria-label", "Debug panel");
+
+    const grip = el("span", "pev-dbg-grip", "⠿");
+    grip.title = "Drag to move the panel";
+    grip.setAttribute("aria-hidden", "true");
+    const head = el("div", "pev-dbg-head");
+    head.append(
+      grip,
+      el("span", "pev-dbg-title", "Debug"),
+      button("🐞", "Minimize / expand the panel", () => {
+        panel.classList.toggle("min");
+        placePanel(panel); // a wider panel may now run off the screen
+      }, "pev-dbg-min"),
+      button("✕", "Close the panel", () => window.pev.hud(false), "pev-dbg-close")
+    );
+
+    const mph = el("input");
     mph.type = "number";
     mph.min = "1";
     mph.max = "200";
     mph.value = "12";
-    mph.title = "Simulated speed (mph)";
+    mph.inputMode = "numeric";
     mph.setAttribute("aria-label", "Simulated speed in mph");
-    const grip = document.createElement("span");
-    grip.className = "pev-dbg-grip";
-    grip.textContent = "⠿";
-    grip.title = "Drag to move the panel";
-    grip.setAttribute("aria-hidden", "true");
-    bar.appendChild(grip);
-    button("🐞", "Minimize / expand the panel", () => {
-      panel.classList.toggle("min");
-      placePanel(panel); // a wider panel may now run off the screen
-    }, "pev-dbg-min");
-    button("▶ Drive", "Ride the current route with simulated GPS", () => show("drive", drive(Number(mph.value) || 12)));
-    bar.appendChild(mph);
-    button("■ Stop", "Stop the simulated drive", () => show("stop", stop() || "Stopped."));
-    button("Route", "Current route summary and steps", () => show("route", route(true)));
-    button("State", "App, ride and camera snapshot", () => show("state", snapshot()));
-    button("Copy", "Copy the readout and the last result", () => copy(panel));
-    button("Reset app", "Drop the service worker and caches, then reload", () => resetApp());
-    button("✕", "Close the panel", () => window.pev.hud(false), "pev-dbg-close");
-    const readout = document.createElement("pre");
-    readout.className = "pev-dbg-readout";
-    output = document.createElement("pre");
-    output.className = "pev-dbg-out";
+    const speed = el("label", "pev-dbg-speed");
+    speed.append(mph, "mph");
+    const rideSec = section(
+      "Simulate a ride",
+      [
+        button("▶ Drive", "Ride the current route with simulated GPS", () => show("drive", drive(Number(mph.value) || 12)), "pev-dbg-go"),
+        speed,
+        button("■ Stop", "Stop the simulated drive", () => show("stop", stop() || "Stopped.")),
+      ],
+      "<b>Drive</b> starts the ride and feeds fake GPS along the current route at this speed, all the way to arrival. <b>Stop</b> ends it."
+    );
+    const inspect = section(
+      "Inspect",
+      [
+        button("Route", "Current route summary and steps", () => show("route", route(true))),
+        button("State", "App, ride and camera snapshot", () => show("state", snapshot())),
+        button("Copy", "Copy the readout and the last result", () => copy(panel)),
+      ],
+      "<b>Route</b>: summary and every step. <b>State</b>: trip, ride and camera. <b>Copy</b>: the readout and the last result, to paste into a bug report."
+    );
+    const app = section(
+      "App",
+      [button("Reset app", "Drop the service worker and caches, then reload", () => resetApp(), "pev-dbg-danger")],
+      "Clears the cached app and reloads: for a phone stuck on an old version."
+    );
+
+    output = el("pre", "pev-dbg-out");
     output.hidden = true;
-    panel.append(bar, readout, output);
+    const readout = el("pre", "pev-dbg-readout");
+    const live = el("details", "pev-dbg-live");
+    live.open = true;
+    const summary = el("summary", "pev-dbg-cap", "Live readout");
+    live.append(summary, readout);
+    const liveSec = el("section");
+    liveSec.append(live);
+
+    panel.append(head, rideSec, inspect, app, output, liveSec);
     document.body.appendChild(panel);
     makeDraggable(panel, grip);
     placePanel(panel, loadPos());

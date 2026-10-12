@@ -248,14 +248,14 @@ def test_debug_panel_buttons_and_title_taps(ride_page):
         page.click("#sidebar header h1")
     page.wait_for_selector("#pev-debug-hud")
     route_via_ui(page)
-    page.click("#pev-debug-hud >> text=Route")
+    page.click("#pev-debug-hud button:text-is(\"Route\")")
     out = page.text_content("#pev-debug-hud .pev-dbg-out")
     assert out.startswith("route") and '"miles"' in out and "steps" in out
-    page.click("#pev-debug-hud >> text=State")
+    page.click("#pev-debug-hud button:text-is(\"State\")")
     assert '"routeShown": true' in page.text_content("#pev-debug-hud .pev-dbg-out")
     # Drive from the panel: a fast simulated ride reaches the destination.
     page.fill("#pev-debug-hud input", "200")
-    page.click("#pev-debug-hud >> text=▶ Drive")
+    page.click("#pev-debug-hud button:text-is(\"▶ Drive\")")
     page.wait_for_function("() => ride.arrived", timeout=15000)
     # Minimize keeps only the bug button; close removes the panel.
     page.click("#pev-debug-hud .pev-dbg-min")
@@ -263,8 +263,8 @@ def test_debug_panel_buttons_and_title_taps(ride_page):
     page.click("#pev-debug-hud .pev-dbg-min")
     # Close sits in the top-right corner.
     panel, close = rect(page, "#pev-debug-hud"), rect(page, "#pev-debug-hud .pev-dbg-close")
-    assert panel["right"] - close["right"] < 10 and close["top"] - panel["top"] < 10, (panel, close)
-    page.click("#pev-debug-hud >> text=✕")
+    assert panel["right"] - close["right"] < 20 and close["top"] - panel["top"] < 20, (panel, close)
+    page.click("#pev-debug-hud .pev-dbg-close")
     assert not page.is_visible("#pev-debug-hud")
 
 
