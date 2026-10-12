@@ -111,8 +111,9 @@ the nearest charger, BikeLink locker and bike rack to it, each with its
 distance (greyed out when there is none within a mile). Picking one routes
 there instead: a ring and a dashed line mark the real destination, the summary
 says how far the walk is, and arrival announces it ("Cafe Encore is 30 feet
-away"). Picking it again goes back to riding all the way. Mopeds get the
-charger tile only: lockers and racks are sized for bikes and scooters.
+away"). Picking it again goes back to riding all the way. Mopeds get
+charger and motorcycle-parking tiles instead of lockers and racks, which are
+sized for bikes and scooters; their pink pins show on the map in moped mode.
 
 **Phones start from your location**, as other navigation apps do: with
 location already allowed the start fills in at launch, silently; otherwise the
@@ -135,6 +136,7 @@ start yourself always wins.
    | `addresses.parquet` | Overture `addresses/address` | ~433k addresses for search |
    | `bikelink.geojson` | [bikelink.org](https://bikelink.org) `/maps` payload | SF secure bike/PEV lockers (eLockers, hangars, group parking), ~29 sites |
    | `racks.geojson` | [DataSF / SFMTA](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5) SODA API | ~6k sidewalk bike racks + on-street corrals, with space counts and install year |
+   | `motoparking.geojson` | [DataSF / SFMTA Parking Meters](https://data.sf.gov/Transportation/Parking-Meters/8vzz-qzz9), black caps | ~2.9k motorcycle spaces grouped per block into ~330 sites, with space and metered counts (69 KB) |
    | `bike_exempt_turns.json` | OSM turn restrictions with `except=bicycle`, via the [Overpass API](https://overpass-api.de) | ~120 SF rules; Overture drops `except`, see below |
    | `elevation.npz` | [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (AWS Open Data; USGS 3DEP in the US) | ground elevation mosaic, zoom 14 (~7.5 m/px), sampled at every junction |
 
@@ -350,5 +352,7 @@ pulled from the public locations page at sync time — the slice is refresh
 stable and small, and a failed pull never breaks the build. Bike racks:
 SFMTA's [Bicycle Parking Racks](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5)
 dataset on DataSF (public domain / PDDL), pulled from the Socrata SODA API at
-sync time the same way. Elevation: [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/)
+sync time the same way, as is motorcycle parking (SFMTA's
+[Parking Meters](https://data.sf.gov/Transportation/Parking-Meters/8vzz-qzz9),
+black-cap meters). Elevation: [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/)
 on AWS Open Data, built over the US from USGS 3DEP (public domain).

@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <!-- style.css comes after maplibre-gl.css so our popup overrides win at equal specificity -->
-  <link rel="stylesheet" href="style.css?v=43" />
+  <link rel="stylesheet" href="style.css?v=44" />
 </head>
 <body>
   <aside id="sidebar">
@@ -87,7 +87,7 @@
       <ul>
         <li>Set a <b>start</b> and a <b>destination</b>: use your current location, search, or tap the map and choose <b>Start here</b> / <b>Go here</b>. Drag either pin to adjust.</li>
         <li>Pick your vehicle type — routes and speed rules follow California law for that vehicle.</li>
-        <li>Map pins: <span class="legend-dot amber" aria-hidden="true"></span>chargers · <span class="legend-dot blue" aria-hidden="true"></span>BikeLink lockers · <span class="legend-dot violet" aria-hidden="true"></span>bike racks. Tap one to navigate there.</li>
+        <li>Map pins: <span class="legend-dot amber" aria-hidden="true"></span>chargers · <span class="legend-dot blue" aria-hidden="true"></span>BikeLink lockers · <span class="legend-dot violet" aria-hidden="true"></span>bike racks · <span class="legend-dot pink" aria-hidden="true"></span>motorcycle parking (mopeds). Tap one to navigate there.</li>
       </ul>
       <label class="welcome-again"><input type="checkbox" id="welcome-never" /> Don't show this again</label>
       <button id="welcome-close">Got it</button>
@@ -126,8 +126,8 @@
     </div>
     <ol id="steps"></ol>
   </div>
-  <script src="app.js?v=43"></script>
+  <script src="app.js?v=44"></script>
   <!-- Console developer tools (pev.help()); idle until called. -->
-  <script src="debug.js?v=43"></script>
+  <script src="debug.js?v=44"></script>
 </body>
 </html>

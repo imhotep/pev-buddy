@@ -449,6 +449,7 @@ body.riding .maplibregl-user-location-accuracy-circle { display: none; }
 .legend-dot.amber { background: var(--route); }
 .legend-dot.blue { background: #4da3ff; }
 .legend-dot.violet { background: #b48cff; }
+.legend-dot.pink { background: #f472b6; }
 .welcome-again {
   display: flex;
   align-items: center;

@@ -1041,17 +1041,45 @@ def test_desktop_never_fills_the_start_by_itself(open_app):
     assert page.evaluate("() => state.startRef") is None
 
 
-def test_mopeds_get_no_locker_or_rack_tiles(page):
+def test_mopeds_park_at_chargers_or_motorcycle_parking(page):
     _set_trip_m(page, (0, -100), (190, -100))
     page.wait_for_function("() => state.route")
+    assert [c["kind"] for c in _chips(page)] == ["charger", "locker", "rack"]
     page.click('.park-chip[data-kind="locker"]')
     page.wait_for_function("() => state.parkKind === 'locker'")
     # Switching to a moped: the locker no longer fits, so the route goes back
-    # to the real destination and only the charger tile is offered.
+    # to the real destination; lockers and racks give way to motorcycle parking.
     page.select_option("#vehicle", "moped")
     page.wait_for_function("() => !state.parkKind && state.endRef.label === 'Cafe'")
-    assert [c["kind"] for c in _chips(page)] == ["charger"]
+    assert [c["kind"] for c in _chips(page)] == ["charger", "moto"]
     assert not page.is_visible(".goal-ring")
-    # Back on a scooter all three return.
+    page.click('.park-chip[data-kind="moto"]')
+    page.wait_for_function("() => state.parkKind === 'moto' && state.route.end_label !== 'Cafe'")
+    assert page.evaluate("() => state.endRef.label") == "Motorcycle parking · Side St"
+    # Back on a scooter: the motorcycle spot doesn't fit, the bike tiles return.
     page.select_option("#vehicle", "scooter")
+    page.wait_for_function("() => !state.parkKind")
     assert [c["kind"] for c in _chips(page)] == ["charger", "locker", "rack"]
+
+
+def test_motorcycle_parking_pins_show_for_mopeds_only(page):
+    vis = "() => map.getLayoutProperty('pev-moto', 'visibility')"
+    page.wait_for_function("() => map.getLayer('pev-moto')")
+    assert page.evaluate(vis) == "none"
+    page.select_option("#vehicle", "moped")
+    assert page.evaluate(vis) == "visible"
+    # Tapping a site offers to ride there.
+    lon, lat = m_to_lonlat(100, -100)
+    page.evaluate(f"() => map.jumpTo({{ center: [{lon}, {lat}], zoom: 16 }})")
+    page.wait_for_function("() => !map.isMoving() && map.loaded()")
+    page.wait_for_timeout(200)
+    pt = page.evaluate(f"() => map.project([{lon}, {lat}])")
+    box = page.locator("#map").bounding_box()
+    page.mouse.click(box["x"] + pt["x"], box["y"] + pt["y"])
+    page.wait_for_selector(".maplibregl-popup .bubble-title")
+    assert page.text_content(".maplibregl-popup .bubble-title") == "Motorcycle parking"
+    assert "3 spaces · free" in page.text_content(".maplibregl-popup .bubble-meta")
+    # Hidden while a route is drawn, like the other pins.
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    assert page.evaluate(vis) == "none"

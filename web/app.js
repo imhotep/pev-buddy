@@ -107,9 +107,11 @@ document.getElementById("vehicle").addEventListener("change", (e) => {
     state.parkFor = null;
     state.parkKind = null;
     placeEnd(goal); // routes
+    syncMotoLayer();
     return;
   }
   syncParking();
+  syncMotoLayer();
   maybeRoute();
 });
 loadVehicleTypes();
@@ -127,7 +129,7 @@ const fmtMin = (s) => `${Math.max(1, Math.round(s / 60))} min`;
 // ---------------------------------------------------------------- map layers
 
 map.on("load", async () => {
-  let roads, pois;
+  let roads, pois, moto;
   try {
     roads = await fetchRoads();
     const stations = await (await fetch("/data/stations.geojson")).json();
@@ -135,6 +137,8 @@ map.on("load", async () => {
     // just means fewer pins.
     const bikelink = await fetchFC("/data/bikelink.geojson");
     const racks = await fetchFC("/data/racks.geojson");
+    // Motorcycle parking: its own layer, shown to mopeds only (see syncMotoLayer).
+    moto = (await fetchFC("/data/motoparking.geojson")).features.map((f) => withKind(f, "moto"));
     // Chargers, lockers, and racks share one clustered source: zoomed out the
     // map shows count bubbles instead of thousands of overlapping pins.
     pois = {
@@ -145,7 +149,7 @@ map.on("load", async () => {
         ...racks.features.map((f) => withKind(f, "rack")),
       ],
     };
-    indexPois(pois.features);
+    indexPois([...pois.features, ...moto]);
   } catch {
     const el = document.getElementById("map-loading");
     if (el) el.textContent = "Map data failed to load — reload to try again.";
@@ -285,7 +289,25 @@ map.on("load", async () => {
     },
   });
 
-  const clickable = ["pev-pois", "pev-clusters"];
+  // SFMTA motorcycle parking (black-cap meters, grouped per block): mopeds only,
+  // and unclustered: ~330 sites stay readable at city zoom.
+  map.addSource("pev-moto", { type: "geojson", data: { type: "FeatureCollection", features: moto }, promoteId: "id" });
+  map.addLayer({
+    id: "pev-moto",
+    type: "circle",
+    source: "pev-moto",
+    minzoom: 11,
+    layout: { visibility: "none" },
+    paint: {
+      "circle-color": "#f472b6",
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 4, 15, 8],
+      "circle-stroke-width": 2,
+      "circle-stroke-color": "#0c141d",
+    },
+  });
+  syncMotoLayer();
+
+  const clickable = ["pev-pois", "pev-clusters", "pev-moto"];
   map.on("mousemove", (e) => {
     const over = map.queryRenderedFeatures(e.point, { layers: clickable }).length > 0;
     map.getCanvas().style.cursor = over ? "pointer" : "";
@@ -522,6 +544,30 @@ function showRackPopup(r) {
   return popup;
 }
 
+// Details bubble for an SFMTA motorcycle parking site (black-cap meters).
+function showMotoPopup(m) {
+  const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 12 }).setLngLat([m.lon, m.lat]);
+  const card = document.createElement("div");
+  card.className = "bubble";
+  const title = document.createElement("div");
+  title.className = "bubble-title";
+  title.textContent = "Motorcycle parking";
+  const meta = document.createElement("div");
+  meta.className = "bubble-meta";
+  const spaces = Number(m.spaces) || 0;
+  const metered = Number(m.metered) || 0;
+  const bits = [];
+  if (m.address) bits.push(m.address);
+  if (spaces) bits.push(`${spaces} space${spaces === 1 ? "" : "s"}`);
+  bits.push(metered === 0 ? "free" : metered === spaces ? "metered" : `${metered} metered`);
+  if (m.offstreet === true || m.offstreet === "true") bits.push("off-street lot");
+  meta.textContent = bits.join(" · ");
+  card.append(title, meta);
+  card.appendChild(pickActions(popup, poiRef("moto", { lat: m.lat, lon: m.lon, props: { name: m.name } })));
+  popup.setDOMContent(card).addTo(map);
+  return popup;
+}
+
 // ---------------------------------------------------------------- trip refs
 
 // On a phone the start defaults to the rider's location, as in other
@@ -567,16 +613,17 @@ const PARK_KINDS = [
   { kind: "charger", icon: "⚡", label: "Charger", none: "No charger within 1 mi of the destination" },
   { kind: "locker", icon: "🔒", label: "BikeLink", none: "No BikeLink locker within 1 mi of the destination" },
   { kind: "rack", icon: "🚲", label: "Rack", none: "No bike rack within 1 mi of the destination" },
+  { kind: "moto", icon: "🏍", label: "Moto", none: "No motorcycle parking within 1 mi of the destination" },
 ];
-const poiIndex = { charger: [], locker: [], rack: [] };
+const poiIndex = { charger: [], locker: [], rack: [], moto: [] };
 
 // BikeLink lockers and bike racks are sized for bikes, scooters and boards; a
-// moped (or e-moto) parks in motorcycle parking, which we have no data for.
-// Those vehicles get the charger tile only.
-const PARK_KINDS_BY_VEHICLE = { moped: ["charger"], emoto: ["charger"] };
+// moped (or e-moto) parks in motorcycle parking instead, which in turn is no
+// place for a bike.
+const PARK_KINDS_DEFAULT = ["charger", "locker", "rack"];
+const PARK_KINDS_BY_VEHICLE = { moped: ["charger", "moto"], emoto: ["charger", "moto"] };
 function parkKindFits(kind) {
-  const only = PARK_KINDS_BY_VEHICLE[state.vehicle];
-  return !only || only.includes(kind);
+  return (PARK_KINDS_BY_VEHICLE[state.vehicle] || PARK_KINDS_DEFAULT).includes(kind);
 }
 
 function indexPois(features) {
@@ -627,6 +674,9 @@ function poiRef(kind, p) {
   if (kind === "locker") {
     const label = name || "BikeLink locker";
     return p.id ? { kind: "bikelink", station_id: p.id, lat: p.lat, lon: p.lon, label, poi: kind } : { kind: "coords", lat: p.lat, lon: p.lon, label, poi: kind };
+  }
+  if (kind === "moto") {
+    return { kind: "coords", lat: p.lat, lon: p.lon, label: name ? `Motorcycle parking · ${name}` : "Motorcycle parking", poi: kind };
   }
   return { kind: "coords", lat: p.lat, lon: p.lon, label: name ? `Bike rack · ${name}` : "Bike rack", poi: kind };
 }
@@ -959,6 +1009,14 @@ map.on("click", (e) => {
   if (ride.active) return;
   // Cluster clicks are the zoom handler's job — don't treat them as empty space.
   if (map.queryRenderedFeatures(e.point, { layers: ["pev-clusters"] }).length) return;
+  if (map.getLayer("pev-moto")) {
+    const m = map.queryRenderedFeatures(e.point, { layers: ["pev-moto"] })[0];
+    if (m) {
+      const [lon, lat] = m.geometry.coordinates;
+      showMotoPopup({ ...m.properties, id: m.id, lat, lon });
+      return;
+    }
+  }
   const feats = map.queryRenderedFeatures(e.point, { layers: ["pev-pois"] });
   if (feats.length) {
     const f = feats[0];
@@ -1031,6 +1089,15 @@ function syncNavUI() {
   for (const id of ["pev-pois", "pev-clusters", "pev-cluster-count"]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", state.routeShown ? "none" : "visible");
   }
+  syncMotoLayer();
+}
+
+// Motorcycle parking pins: for mopeds (the only routable motor vehicle),
+// and, like the other pins, out of the way while a route is drawn.
+function syncMotoLayer() {
+  if (!map.getLayer("pev-moto")) return;
+  const show = !state.routeShown && parkKindFits("moto");
+  map.setLayoutProperty("pev-moto", "visibility", show ? "visible" : "none");
 }
 
 // Phone bottom sheet: with a route up it collapses to the route summary and
