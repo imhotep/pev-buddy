@@ -1147,3 +1147,55 @@ def test_map_pins_are_the_parking_kinds_that_fit_the_vehicle(page):
     assert "3 spaces · free" in page.text_content(".maplibregl-popup .bubble-meta")
     page.select_option("#vehicle", "ebike_c3")
     assert page.evaluate(kinds) == ["charger", "locker"]
+
+
+# ------------------------------------------------ location: precise, then coarse
+
+def _flaky_geo(precise_code, coarse_code=None):
+    """Geolocation whose precise request fails with `precise_code` and whose
+    coarse retry fails with `coarse_code` (None: succeeds at node A)."""
+    lon, lat = m_to_lonlat(0, 0)
+    return f"""
+(() => {{
+  window.__geoCalls = [];
+  const fail = (cb, code) => setTimeout(() => cb({{ code, message: 'CoreLocationProvider: kCLErrorLocationUnknown' }}), 0);
+  const geo = {{
+    getCurrentPosition(ok, err, opts) {{
+      window.__geoCalls.push(!!(opts && opts.enableHighAccuracy));
+      if (opts && opts.enableHighAccuracy) return fail(err, {precise_code});
+      if ({'null' if coarse_code is None else coarse_code} !== null) return fail(err, {'null' if coarse_code is None else coarse_code});
+      setTimeout(() => ok({{ coords: {{ longitude: {lon}, latitude: {lat}, accuracy: 80 }}, timestamp: Date.now() }}), 0);
+    }},
+    watchPosition() {{ return 1; }},
+    clearWatch() {{}},
+  }};
+  Object.defineProperty(navigator, 'geolocation', {{ value: geo, configurable: true }});
+}})();
+"""
+
+
+def test_location_unavailable_retries_with_a_coarse_fix(open_app):
+    page = open_app(init_scripts=[_flaky_geo(2)])
+    page.click("#use-location")
+    page.wait_for_function("() => state.startRef")
+    assert page.evaluate("() => state.startRef.label") == "My location"
+    assert page.evaluate("() => window.__geoCalls") == [True, False]  # precise, then coarse
+    assert page.is_hidden("#trip-status")
+
+
+def test_location_failure_explains_what_to_check(open_app):
+    page = open_app(init_scripts=[_flaky_geo(3, 2)])  # timeout, then unavailable
+    page.click("#use-location")
+    page.wait_for_selector("#trip-status.error")
+    text = page.text_content("#trip-status")
+    assert "Location Services" in text and "Wi-Fi" in text
+    assert "CoreLocation" not in text  # never the raw platform message
+    assert page.evaluate("() => state.startRef") is None
+
+
+def test_location_denied_is_not_retried(open_app):
+    page = open_app(init_scripts=[_flaky_geo(1)])
+    page.click("#use-location")
+    page.wait_for_selector("#trip-status.error")
+    assert "permission" in page.text_content("#trip-status").lower()
+    assert page.evaluate("() => window.__geoCalls") == [True]
