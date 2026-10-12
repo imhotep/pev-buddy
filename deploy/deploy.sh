@@ -63,7 +63,11 @@ while [ $# -gt 0 ]; do
 done
 
 TARGET="${DEPLOY_USER:+$DEPLOY_USER@}$DEPLOY_HOST"
-SSH=(ssh -p "$DEPLOY_SSH_PORT" -o ServerAliveInterval=15)
+# One SSH connection for the whole run, reused by every step (and by rsync):
+# faster, and a Tailscale SSH check or a key passphrase is asked for once.
+SSH_OPTS="-p $DEPLOY_SSH_PORT -o ServerAliveInterval=15 -o ControlMaster=auto -o ControlPath=$HOME/.ssh/pev-deploy-%C -o ControlPersist=120"
+# shellcheck disable=SC2206
+SSH=(ssh $SSH_OPTS)
 
 say() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
@@ -109,9 +113,25 @@ restart_and_check() {
   run "${SSH[@]}" -t "$TARGET" "sudo systemctl restart $DEPLOY_SERVICE"
 
   say "Health check (on the server)"
-  run "${SSH[@]}" "$TARGET" \
-    "curl -fsS --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:$DEPLOY_APP_PORT/api/health" \
-    | { [ "$DRY_RUN" = 1 ] && cat || python3 -c 'import json,sys; h=json.load(sys.stdin); print(f"    {h[\"status\"]}: {h[\"nodes\"]} nodes, {h[\"edges\"]} edges, {h[\"stations\"]} chargers, release {h[\"release\"]}")'; }
+  local check="curl -fsS --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:$DEPLOY_APP_PORT/api/health"
+  if [ "$DRY_RUN" = 1 ]; then
+    run "${SSH[@]}" "$TARGET" "$check"
+  else
+    # Captured first, then read: a reader that exits early must not cut
+    # curl's retries short while the app is still starting.
+    local health
+    if ! health="$("${SSH[@]}" "$TARGET" "$check" 2>/dev/null)"; then
+      warn "The app didn't answer on 127.0.0.1:$DEPLOY_APP_PORT within 30 s. Its status and recent log:"
+      "${SSH[@]}" "$TARGET" "systemctl status $DEPLOY_SERVICE --no-pager -n 25" || true
+      die "Health check failed. Fix it, or roll back: deploy/deploy.sh --rollback"
+    fi
+    printf '%s' "$health" | python3 -c "
+import json, sys
+h = json.load(sys.stdin)
+print('    {}: {} nodes, {} edges, {} chargers, release {}'.format(
+    h.get('status'), h.get('nodes'), h.get('edges'), h.get('stations'), h.get('release')))
+" || echo "    $health"
+  fi
 
   if [ -n "$DEPLOY_PUBLIC_URL" ] && [ -n "$want_version" ] && [ "$DRY_RUN" = 0 ]; then
     say "Public site: $DEPLOY_PUBLIC_URL"
@@ -205,7 +225,7 @@ EOF
 
 if [ "$SYNC_DATA" = 1 ]; then
   say "Uploading $DEPLOY_DATA_DIR/ (only what changed)"
-  run rsync -az -e "ssh -p $DEPLOY_SSH_PORT" "$DEPLOY_DATA_DIR/" "$TARGET:$DEPLOY_APP_DIR/data/"
+  run rsync -az -e "ssh $SSH_OPTS" "$DEPLOY_DATA_DIR/" "$TARGET:$DEPLOY_APP_DIR/data/"
 fi
 
 restart_and_check "$VERSION"
