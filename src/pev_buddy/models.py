@@ -17,6 +17,17 @@ class PointRef(BaseModel):
     label: str | None = None  # display name for coordinate refs (e.g. a searched POI)
 
 
+class WalkRequest(BaseModel):
+    start: PointRef
+    end: PointRef
+
+
+class WalkOut(BaseModel):
+    path: list[list[float]]
+    distance_m: float
+    duration_s: float
+
+
 class RouteRequest(BaseModel):
     start: PointRef
     end: PointRef

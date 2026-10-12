@@ -342,6 +342,8 @@ class RoadGraph:
         """
         if cls in config.EXCLUDED_CLASSES:
             return None
+        if cls == "steps":
+            return "steps"
         if desig or cls in ("cycleway", "path", "track"):
             return "bike_lane"
         if cls == "footway":

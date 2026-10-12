@@ -168,7 +168,8 @@ def test_road_category_banding():
     assert cat("footway", None, False) == "sidewalk"
     assert cat("cycleway", None, False) == "bike_lane"
     assert cat("motorway", None, False) is None  # 65 mph default -> excluded
-    assert cat("steps", None, False) is None
+    assert cat("steps", None, False) == "steps"  # walking only
+    assert cat("bridleway", None, False) is None
     assert cat("residential", 35, False) == "arterial"  # posted limit wins
     assert cat("residential", 10, False) == "quiet"
     assert cat("residential", 50, False) is None  # above the hard ceiling

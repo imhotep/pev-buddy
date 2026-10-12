@@ -1199,3 +1199,19 @@ def test_location_denied_is_not_retried(open_app):
     page.wait_for_selector("#trip-status.error")
     assert "permission" in page.text_content("#trip-status").lower()
     assert page.evaluate("() => window.__geoCalls") == [True]
+
+
+def test_parking_walk_follows_the_streets(page):
+    # The synthetic charger is on A; the destination is just short of F. The
+    # walk goes along the streets (A -> B -> C -> F or A -> D -> E -> F, ~300 m),
+    # not the ~220 m straight line.
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    page.click('.park-chip[data-kind="charger"]')
+    page.wait_for_function("() => state.parkKind === 'charger' && walk && walk.key === walkKey()")
+    coords = page.evaluate("() => map.getSource('pev-walk')._data.features[0].geometry.coordinates")
+    assert len(coords) >= 4  # turns at the corners, not a straight line
+    assert 280 < page.evaluate("() => parkWalkM()") < 320
+    page.wait_for_function("() => /min\\)/.test(document.querySelector('#route-summary .park-note').textContent)")
+    assert "Then walk" in page.text_content("#route-summary .park-note")
+

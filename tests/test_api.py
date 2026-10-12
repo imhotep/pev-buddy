@@ -319,3 +319,11 @@ def test_route_to_bikelink_by_id(client):
     )
     assert r.status_code == 200, r.text
     assert r.json()["start_label"] == "Test Locker"
+
+
+def test_search_ignores_accents_and_case(client):
+    # The synthetic place is "Test Bakery"; riders type accents the data may
+    # not have, and the data may have accents riders don't type.
+    for q in ("Tést Bákery", "TEST BAKERY", "test bakery"):
+        names = [r["text"] for r in client.get("/api/search", params={"q": q}).json()]
+        assert "Test Bakery" in names, (q, names)

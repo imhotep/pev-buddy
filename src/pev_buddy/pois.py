@@ -8,6 +8,7 @@ import numpy as np
 import orjson
 
 from . import config
+from .text import fold
 
 
 def format_category(cat: str | None) -> str:
@@ -47,7 +48,7 @@ class POIIndex:
                 cat_vocab.append(r[2])
                 cat_index[r[2]] = c
             cat_code[i] = c
-            grouped.setdefault(r[1].casefold(), []).append(i)
+            grouped.setdefault(fold(r[1]), []).append(i)
         self.cat_vocab = cat_vocab
         self.cat_code = cat_code
         self.by_name: dict[str, tuple[int, ...]] = {k: tuple(v) for k, v in grouped.items()}
@@ -56,7 +57,7 @@ class POIIndex:
         return len(self.names)
 
     def search(self, query: str, limit: int = 10) -> list[dict]:
-        q = (query or "").strip().casefold()
+        q = fold((query or "").strip())
         if not q:
             return []
         scored: list[tuple[int, int]] = []
