@@ -11,3 +11,6 @@ data_cache/
 *.egg-info/
 dist/
 build/
+
+# Deploy settings (deploy/deploy.sh); see .env.sample
+.env

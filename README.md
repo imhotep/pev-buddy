@@ -329,27 +329,25 @@ with automatic Let's Encrypt HTTPS (`deploy/Caddyfile`: one `reverse_proxy`
 block per subdomain, so other apps can share the box). Releases are tagged
 (`v0.1.0`, `v0.2.0`, …) so any release can be restored.
 
-To update it (code and data):
+**Deploying** is one command from your dev machine. The data bundle is built
+there (it needs ~1.5 GB RAM) and pushed with the code:
 
 ```bash
-# on the server
-cd ~/pev-buddy
-cp -a data data.backup                       # for rollback
-git fetch --tags && git checkout main && git pull --ff-only
-.venv/bin/python -m pip install -q -r requirements.txt && .venv/bin/python -m pip install -q --no-deps .
-
-# on the build machine: the data bundle needs ~1.5 GB RAM to build, so build
-# it there and push it
-rsync -az --progress data/ <server>:~/pev-buddy/data/
-
-# on the server
-sudo systemctl restart pev-buddy
+cp .env.sample .env          # once: server, user, paths (.env is git-ignored)
+deploy/deploy.sh             # deploy DEPLOY_REF (main by default), code + data
+deploy/deploy.sh --ref v0.3.0 --code-only    # a tag, without re-uploading data
+deploy/deploy.sh --dry-run   # print every step, change nothing
+deploy/deploy.sh --rollback  # back to the previous release and its data
 ```
 
-A code-only change skips the `rsync`. If the server's venv has no `pip`
-(`No module named pip`), run `.venv/bin/python -m ensurepip --upgrade` first
-(or install `python3-venv`). To roll back: `git checkout <previous tag>`,
-restore `data.backup` to `data`, and restart.
+`deploy/deploy.sh` checks the ref is pushed, then on the server: records the
+current commit and takes a hard-link snapshot of `data/` (instant, nearly free
+on disk; the last `DEPLOY_KEEP_BACKUPS` are kept), checks out the ref,
+installs dependencies (repairing a venv that has no `pip`), uploads `data/`
+with `rsync` (only what changed), restarts the systemd unit, and checks
+`/api/health` on the server and that the public page serves the new build.
+`--rollback` restores the recorded commit and, if that deploy uploaded data,
+its snapshot. A failed step stops the deploy before the restart.
 
 ### Self-host behind Tailscale
 
