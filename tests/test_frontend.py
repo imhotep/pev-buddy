@@ -900,3 +900,142 @@ def test_use_my_location_reports_failures_in_page(page):
     page.wait_for_function("() => document.getElementById('trip-status').textContent.includes('permission')")
     assert page.eval_on_selector("#trip-status", "el => el.classList.contains('error')")
     assert page.text_content("#start-label").startswith("Not set")
+
+
+# ------------------------------------------------------- park near destination
+
+
+def _set_trip_m(page, start, end, end_label="Cafe"):
+    slon, slat = m_to_lonlat(*start)
+    elon, elat = m_to_lonlat(*end)
+    page.evaluate(
+        f"""() => {{
+          setStart({{ kind: 'coords', lat: {slat}, lon: {slon}, label: 'Test start' }});
+          setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: '{end_label}' }});
+        }}"""
+    )
+
+
+def _chips(page):
+    return page.evaluate(
+        """() => [...document.querySelectorAll('#park-near .park-chip')].map((b) => ({
+             kind: b.dataset.kind, text: b.textContent.trim(), disabled: b.disabled,
+             pressed: b.getAttribute('aria-pressed') === 'true' }))"""
+    )
+
+
+def test_park_near_chips_route_to_parking_and_back(page):
+    assert not page.is_visible("#park-near")
+    # Destination 10 m short of F: the synthetic BikeLink locker sits on F,
+    # the charger on A (~220 m away); there are no racks.
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    chips = {c["kind"]: c for c in _chips(page)}
+    assert "ft" in chips["locker"]["text"] and not chips["locker"]["disabled"]
+    assert not chips["charger"]["disabled"]
+    assert chips["rack"]["disabled"] and "none within 1 mi" in chips["rack"]["text"]
+
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.route && state.route.end_label !== 'Cafe'")
+    assert page.evaluate("() => [state.endRef.poi, state.parkFor.label, state.parkKind]") == ["locker", "Cafe", "locker"]
+    assert "Then walk" in page.text_content("#route-summary")
+    assert page.is_visible(".goal-ring")
+    assert page.evaluate("() => map.getSource('pev-walk')._data.features.length") == 1
+    assert {c["kind"]: c["pressed"] for c in _chips(page)}["locker"] is True
+
+    # The same chip again: back to riding all the way.
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.endRef.label === 'Cafe' && !state.parkFor")
+    assert not page.is_visible(".goal-ring")
+    assert page.evaluate("() => map.getSource('pev-walk')._data.features.length") == 0
+
+    # A new destination drops the parking choice; Reset clears the row.
+    page.click('.park-chip[data-kind="charger"]')
+    page.wait_for_function("() => state.parkKind === 'charger'")
+    _set_trip_m(page, (0, -100), (100, -100), end_label="Elsewhere")
+    assert page.evaluate("() => [state.parkFor, state.parkKind, state.endRef.label]") == [None, None, "Elsewhere"]
+    page.click("#reset-route")
+    assert not page.is_visible("#park-near")
+
+
+def test_no_park_chips_when_the_destination_is_a_parking_spot(page):
+    lon, lat = m_to_lonlat(200, -100)
+    page.evaluate(
+        f"() => setEnd({{ kind: 'coords', lat: {lat}, lon: {lon}, label: 'Bike rack', poi: 'rack' }})"
+    )
+    assert not page.is_visible("#park-near")
+
+
+def test_arrival_mentions_the_walk_to_the_real_destination(ride_page):
+    page = ride_page
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.parkKind === 'locker' && state.route.end_label !== 'Cafe'")
+    page.click("#start-ride")
+    fix_at(page, 200, -100)
+    page.wait_for_function("() => ride.arrived")
+    assert "Cafe is" in page.text_content("#ride-instruction")
+    assert any("Cafe is" in t and "feet" in t for t in page.evaluate("() => window.__spoken"))
+
+
+# ------------------------------------------------- phones: start from my location
+
+# Headless Chrome reports a fine pointer even with touch emulation; the app
+# decides "phone" from (pointer: coarse), so phone tests answer that query.
+COARSE_POINTER = """
+(() => {
+  const real = window.matchMedia.bind(window);
+  window.matchMedia = (q) => (q === "(pointer: coarse)" ? { ...real(q), matches: true, media: q } : real(q));
+})();
+"""
+
+
+def test_phone_start_defaults_to_my_location_when_a_destination_is_picked(open_app):
+    page = open_app(390, 844, init_scripts=[COARSE_POINTER, GEO_AND_SPEECH_MOCK], is_mobile=True, has_touch=True)
+    # Nothing is asked at launch (permission not granted yet): the start reads
+    # as "your location" and the destination is the row asked for first.
+    assert page.evaluate("() => state.startRef") is None
+    assert "Your location" in page.text_content("#start-label")
+    assert page.evaluate("() => document.getElementById('end-row').classList.contains('needs-input')")
+    # Picking a destination fills the start from the device and routes.
+    lon, lat = m_to_lonlat(0, 0)
+    page.evaluate(f"() => __emitFix({lon}, {lat})")
+    elon, elat = m_to_lonlat(200, -100)
+    page.evaluate(f"() => setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: 'Somewhere' }})")
+    page.wait_for_function("() => state.startRef && state.route")
+    assert page.evaluate("() => state.startRef.label") == "My location"
+
+
+def test_phone_start_from_location_never_overrides_a_chosen_start(open_app):
+    page = open_app(390, 844, init_scripts=[COARSE_POINTER, GEO_AND_SPEECH_MOCK], is_mobile=True, has_touch=True)
+    # No fix arrives: the lookup fails, the rider is told, and can set a start.
+    elon, elat = m_to_lonlat(200, -100)
+    page.evaluate(f"() => setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: 'Somewhere' }})")
+    page.wait_for_function("() => !document.getElementById('trip-status').classList.contains('hidden') && !locating")
+    assert page.evaluate("() => state.startRef") is None
+    assert page.evaluate("() => document.getElementById('start-row').classList.contains('needs-input')")
+    slon, slat = m_to_lonlat(0, -100)
+    page.evaluate(f"() => setStart({{ kind: 'coords', lat: {slat}, lon: {slon}, label: 'Chosen' }})")
+    page.wait_for_function("() => state.route")
+    assert page.evaluate("() => state.startRef.label") == "Chosen"
+
+
+def test_phone_with_location_allowed_fills_the_start_at_launch(open_app):
+    lon, lat = m_to_lonlat(0, 0)
+    page = open_app(
+        390, 844, init_scripts=[COARSE_POINTER], is_mobile=True, has_touch=True,
+        permissions=["geolocation"], geolocation={"latitude": lat, "longitude": lon},
+    )
+    page.wait_for_function("() => state.startRef", timeout=10000)
+    assert page.evaluate("() => state.startRef.label") == "My location"
+    assert page.is_hidden("#trip-status")
+
+
+def test_desktop_never_fills_the_start_by_itself(open_app):
+    lon, lat = m_to_lonlat(0, 0)
+    page = open_app(permissions=["geolocation"], geolocation={"latitude": lat, "longitude": lon})
+    elon, elat = m_to_lonlat(200, -100)
+    page.evaluate(f"() => setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: 'Somewhere' }})")
+    page.wait_for_timeout(500)
+    assert page.evaluate("() => state.startRef") is None

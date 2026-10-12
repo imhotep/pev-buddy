@@ -62,7 +62,12 @@ const state = {
   activeStep: null, // index of the step highlighted on the map
   route: null, // the last /api/route response on the map
   vehicle: "scooter", // CA vehicle type id (from /api/vehicles)
+  // Parking near the destination: while set, the route ends at a charger /
+  // locker / rack (endRef) and parkFor is where the rider is really going.
+  parkFor: null,
+  parkKind: null, // "charger" | "locker" | "rack"
 };
+let locating = false; // a start-location lookup is in flight
 
 // ---------------------------------------------------------------- vehicle type
 
@@ -130,6 +135,7 @@ map.on("load", async () => {
         ...racks.features.map((f) => withKind(f, "rack")),
       ],
     };
+    indexPois(pois.features);
   } catch {
     const el = document.getElementById("map-loading");
     if (el) el.textContent = "Map data failed to load — reload to try again.";
@@ -190,6 +196,16 @@ map.on("load", async () => {
     type: "line",
     source: "pev-step-hl",
     paint: { "line-color": "#ffffff", "line-width": 7, "line-opacity": 0.95 },
+  });
+  // Parking near the destination: the walk from the parking spot to where
+  // the rider is going, dashed.
+  map.addSource("pev-walk", { type: "geojson", data: emptyFC() });
+  map.addLayer({
+    id: "pev-walk",
+    type: "line",
+    source: "pev-walk",
+    layout: { "line-cap": "round" },
+    paint: { "line-color": "#ffb02e", "line-width": 3, "line-dasharray": [0.5, 2] },
   });
   map.addSource("pev-step-dot", { type: "geojson", data: emptyFC() });
   map.addLayer({
@@ -403,8 +419,8 @@ function showStationPopup(s) {
   const label = s.name || "Charging station";
   // Prefer the station id; fall back to coordinates if it is unavailable.
   const ref = s.id
-    ? { kind: "station", station_id: s.id, lat: s.lat, lon: s.lon, label }
-    : { kind: "coords", lat: s.lat, lon: s.lon, label };
+    ? { kind: "station", station_id: s.id, lat: s.lat, lon: s.lon, label, poi: "charger" }
+    : { kind: "coords", lat: s.lat, lon: s.lon, label, poi: "charger" };
   card.appendChild(pickActions(popup, ref));
 
   popup.setDOMContent(card).addTo(map);
@@ -458,8 +474,8 @@ function showBikeLinkPopup(b) {
 
   const label = b.name || "BikeLink locker";
   const ref = b.id
-    ? { kind: "bikelink", station_id: b.id, lat: b.lat, lon: b.lon, label }
-    : { kind: "coords", lat: b.lat, lon: b.lon, label };
+    ? { kind: "bikelink", station_id: b.id, lat: b.lat, lon: b.lon, label, poi: "locker" }
+    : { kind: "coords", lat: b.lat, lon: b.lon, label, poi: "locker" };
   card.appendChild(pickActions(popup, ref));
 
   popup.setDOMContent(card).addTo(map);
@@ -490,7 +506,7 @@ function showRackPopup(r) {
   card.append(title, meta);
 
   // The router doesn't know rack ids — route to the coordinates.
-  card.appendChild(pickActions(popup, { kind: "coords", lat: r.lat, lon: r.lon, label: r.name || "Bike rack" }));
+  card.appendChild(pickActions(popup, { kind: "coords", lat: r.lat, lon: r.lon, label: r.name || "Bike rack", poi: "rack" }));
 
   popup.setDOMContent(card).addTo(map);
   return popup;
@@ -498,7 +514,11 @@ function showRackPopup(r) {
 
 // ---------------------------------------------------------------- trip refs
 
-const DEFAULT_START_LABEL = "Not set — use your location, search, or tap the map and choose “Start here”";
+// On a phone the start defaults to the rider's location, as in other
+// navigation apps (see defaultStartToLocation).
+const DEFAULT_START_LABEL = IS_MOBILE
+  ? "Your location — or search, or tap the map and choose “Start here”"
+  : "Not set — use your location, search, or tap the map and choose “Start here”";
 const DEFAULT_END_LABEL = "Not set — search, or tap the map or a pin and choose “Go here”";
 
 function setStart(ref) {
@@ -508,11 +528,147 @@ function setStart(ref) {
   maybeRoute();
 }
 
+// A destination the rider picked: any "park near" choice is dropped.
 function setEnd(ref) {
+  state.parkFor = null;
+  state.parkKind = null;
+  placeEnd(ref);
+  defaultStartToLocation();
+}
+
+function placeEnd(ref) {
   state.endRef = ref;
   endMarker.setLngLat([ref.lon, ref.lat]).addTo(map);
   syncTripLabels();
+  syncParking();
   maybeRoute();
+}
+
+// ------------------------------------------------------ park near destination
+//
+// Once a destination is set, chips offer the nearest charger, BikeLink locker
+// and bike rack to it, each with its distance. Picking one routes there
+// instead (the rider parks and walks the rest: a dashed line and a ring mark
+// the real destination); picking it again goes back. Nothing within
+// PARK_MAX_M of the destination greys a chip out.
+
+const PARK_MAX_M = 1609; // one mile
+const PARK_KINDS = [
+  { kind: "charger", icon: "⚡", label: "Charger", none: "No charger within 1 mi of the destination" },
+  { kind: "locker", icon: "🔒", label: "BikeLink", none: "No BikeLink locker within 1 mi of the destination" },
+  { kind: "rack", icon: "🚲", label: "Rack", none: "No bike rack within 1 mi of the destination" },
+];
+const poiIndex = { charger: [], locker: [], rack: [] };
+
+function indexPois(features) {
+  for (const f of features) {
+    const list = poiIndex[f.properties.kind];
+    if (!list || !f.geometry) continue;
+    const [lon, lat] = f.geometry.coordinates;
+    list.push({ id: f.id ?? f.properties.id, lon, lat, props: f.properties });
+  }
+  syncParking();
+}
+
+function metersBetween(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2;
+  return 2 * 6371008.8 * Math.asin(Math.sqrt(a));
+}
+
+function nearestPoi(kind, goal) {
+  let best = null;
+  for (const p of poiIndex[kind]) {
+    const d = metersBetween(goal.lat, goal.lon, p.lat, p.lon);
+    if (d <= PARK_MAX_M && (!best || d < best.d)) best = { ...p, d };
+  }
+  return best;
+}
+
+// Where the rider is really going: the parked-near destination, or the
+// destination itself.
+function parkGoal() {
+  return state.parkFor || state.endRef;
+}
+
+function parkWalkM() {
+  const { parkFor: g, endRef: e } = state;
+  return g && e ? metersBetween(g.lat, g.lon, e.lat, e.lon) : 0;
+}
+
+function poiRef(kind, p) {
+  const name = p.props.name;
+  if (kind === "charger") {
+    const label = name || "Charging station";
+    return p.id ? { kind: "station", station_id: p.id, lat: p.lat, lon: p.lon, label, poi: kind } : { kind: "coords", lat: p.lat, lon: p.lon, label, poi: kind };
+  }
+  if (kind === "locker") {
+    const label = name || "BikeLink locker";
+    return p.id ? { kind: "bikelink", station_id: p.id, lat: p.lat, lon: p.lon, label, poi: kind } : { kind: "coords", lat: p.lat, lon: p.lon, label, poi: kind };
+  }
+  return { kind: "coords", lat: p.lat, lon: p.lon, label: name ? `Bike rack · ${name}` : "Bike rack", poi: kind };
+}
+
+function chooseParking(kind) {
+  const goal = parkGoal();
+  if (!goal) return;
+  if (state.parkKind === kind) {
+    // Same chip again: back to riding all the way.
+    state.parkFor = null;
+    state.parkKind = null;
+    placeEnd(goal);
+    return;
+  }
+  const p = nearestPoi(kind, goal);
+  if (!p) return;
+  state.parkFor = goal;
+  state.parkKind = kind;
+  placeEnd(poiRef(kind, p));
+}
+
+// A ring where the rider is really going while the route ends at a parking spot.
+const goalMarker = new maplibregl.Marker({
+  element: Object.assign(document.createElement("div"), { className: "goal-ring", title: "Your destination" }),
+});
+
+function syncParking() {
+  const box = document.getElementById("park-near");
+  const chips = box.querySelector(".park-chips");
+  const goal = parkGoal();
+  // No chips without a destination, or when the destination already is a
+  // charger / locker / rack the rider picked.
+  const show = !!goal && !goal.poi;
+  box.classList.toggle("hidden", !show);
+  chips.innerHTML = "";
+  if (show) {
+    for (const k of PARK_KINDS) {
+      const p = nearestPoi(k.kind, goal);
+      const active = state.parkKind === k.kind;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "park-chip";
+      b.dataset.kind = k.kind;
+      b.setAttribute("aria-pressed", String(active));
+      b.disabled = !p;
+      b.innerHTML =
+        `<span class="pc-name"><span aria-hidden="true">${active ? "✓" : k.icon}</span> ${k.label}</span>` +
+        `<span class="pc-dist">${p ? fmtDist(p.d) : "none within 1 mi"}</span>`;
+      b.title = p ? `Ride to ${poiRef(k.kind, p).label}, ${fmtDist(p.d)} from ${goal.label}, and walk the rest` : k.none;
+      b.addEventListener("click", () => chooseParking(k.kind));
+      chips.appendChild(b);
+    }
+  }
+  // The walk: dashed from the parking spot to the real destination.
+  const walking = state.parkFor && state.endRef;
+  if (map.getSource("pev-walk")) {
+    map.getSource("pev-walk").setData(
+      walking
+        ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "LineString", coordinates: [[state.endRef.lon, state.endRef.lat], [state.parkFor.lon, state.parkFor.lat]] } }] }
+        : emptyFC()
+    );
+  }
+  if (walking) goalMarker.setLngLat([state.parkFor.lon, state.parkFor.lat]).addTo(map);
+  else goalMarker.remove();
 }
 
 // Start/Destination labels, plus the empty-state cue: the next row that
@@ -521,8 +677,10 @@ function syncTripLabels() {
   const { startRef, endRef } = state;
   document.getElementById("start-label").textContent = startRef ? startRef.label : DEFAULT_START_LABEL;
   document.getElementById("end-label").textContent = endRef ? endRef.label : DEFAULT_END_LABEL;
-  document.getElementById("start-row").classList.toggle("needs-input", !startRef);
-  document.getElementById("end-row").classList.toggle("needs-input", !!startRef && !endRef);
+  // On a phone the start fills itself in, so the destination is asked first.
+  const startFirst = !IS_MOBILE && !startRef;
+  document.getElementById("start-row").classList.toggle("needs-input", startFirst || (!!endRef && !startRef && !locating));
+  document.getElementById("end-row").classList.toggle("needs-input", !startFirst && !endRef);
 }
 syncTripLabels();
 
@@ -538,6 +696,9 @@ function resetTrip() {
   endRide();
   state.startRef = null;
   state.endRef = null;
+  state.parkFor = null;
+  state.parkKind = null;
+  syncParking();
   state.routeShown = false;
   state.activeStep = null;
   startMarker.remove();
@@ -600,8 +761,10 @@ const LOCATION_ERRORS = {
 
 // Fill the start or destination with the device position, reporting every
 // outcome in the page: in progress, success, and each failure mode.
-function useMyLocation(which) {
+function useMyLocation(which, { auto = false, quiet = false } = {}) {
+  const say = quiet ? () => {} : showTripStatus;
   if (!window.isSecureContext) {
+    if (quiet) return;
     return showTripStatus("Location needs a secure (https) connection. Search or tap the map instead.", true);
   }
   if (!navigator.geolocation) {
@@ -609,24 +772,34 @@ function useMyLocation(which) {
   }
   const button = document.getElementById(which === "end" ? "use-location-end" : "use-location");
   button.disabled = true;
-  showTripStatus("Finding your location…");
+  if (which === "start") locating = true;
+  say("Finding your location…");
+  const done = () => {
+    button.disabled = false;
+    if (which === "start") locating = false;
+    syncTripLabels();
+  };
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      button.disabled = false;
+      done();
+      // Filled in automatically, but the rider picked a start meanwhile.
+      if (auto && state.startRef) return say("");
       const { latitude: lat, longitude: lon } = pos.coords;
       if (!inSF(lon, lat)) {
-        showTripStatus("You appear to be outside San Francisco. PEV Buddy only routes within the city.", true);
+        say("You appear to be outside San Francisco. PEV Buddy only routes within the city.", true);
         return;
       }
-      showTripStatus("");
+      say("");
       const ref = { kind: "coords", lat, lon, label: "My location" };
       if (which === "end") setEnd(ref);
       else setStart(ref);
-      map.flyTo({ center: [lon, lat], zoom: 14, ...FLY });
+      // With a destination set the route fit frames both; otherwise show
+      // where the rider is.
+      if (!state.endRef || which === "end") map.flyTo({ center: [lon, lat], zoom: 14, ...FLY });
     },
     (err) => {
-      button.disabled = false;
-      showTripStatus(LOCATION_ERRORS[err.code] || "Could not get your location. Search or tap the map instead.", true);
+      done();
+      say(LOCATION_ERRORS[err.code] || "Could not get your location. Search or tap the map instead.", true);
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
   );
@@ -637,6 +810,21 @@ function inSF(lon, lat) {
   return lon >= w && lon <= e && lat >= s && lat <= n;
 }
 document.getElementById("use-location").addEventListener("click", () => useMyLocation("start"));
+
+// Phones start from the rider's location, like other navigation apps. With
+// location already allowed, the start fills in at launch, silently. Otherwise
+// nothing asks at launch: picking a destination with no start asks then, when
+// the question makes sense. A start the rider picks always wins.
+function defaultStartToLocation({ quiet = false } = {}) {
+  if (!IS_MOBILE || state.startRef || locating || !navigator.geolocation) return;
+  useMyLocation("start", { auto: true, quiet });
+}
+if (IS_MOBILE && navigator.permissions) {
+  navigator.permissions
+    .query({ name: "geolocation" })
+    .then((p) => p.state === "granted" && defaultStartToLocation({ quiet: true }))
+    .catch(() => {});
+}
 document.getElementById("use-location-end").addEventListener("click", () => useMyLocation("end"));
 
 // ---------------------------------------------------------------- search
@@ -1287,13 +1475,14 @@ function arrive() {
   stopRideTracking();
   releaseWakeLock();
   const dest = state.route.end_label || "your destination";
-  speak(`You have arrived at ${dest}.`);
+  const walk = state.parkFor ? ` ${state.parkFor.label} is ${fmtDist(parkWalkM())} away.` : "";
+  speak(`You have arrived at ${dest}.${walk.replace(/ ft\b/, " feet").replace(/ mi\b/, " miles")}`);
   setRideStatus("");
   const banner = document.getElementById("ride-banner");
   banner.dataset.state = "arrived";
   document.getElementById("ride-arrow").dataset.maneuver = "arrive";
   document.getElementById("ride-distance").textContent = "Arrived";
-  document.getElementById("ride-instruction").textContent = `You've arrived at ${dest}.`;
+  document.getElementById("ride-instruction").textContent = `You've arrived at ${dest}.${walk}`;
 }
 
 // Off route for several fixes or seconds: route again from where the rider is now.
@@ -1506,6 +1695,9 @@ function renderRoute(data) {
   const climb = climbFt >= 10 ? ` · <span class="climb" title="Total climb">↗ ${climbFt} ft</span>` : "";
   let html = `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)}${climb} · ${data.steps.length} steps<br>`;
   html += `<span class="route-from">From ${escapeHtml(data.start_label || "start")} to ${escapeHtml(data.end_label || "destination")}</span>`;
+  if (state.parkFor) {
+    html += `<div class="park-note">🚶 Then walk ${fmtDist(parkWalkM())} to ${escapeHtml(state.parkFor.label)}</div>`;
+  }
   for (const w of data.warnings || []) html += `<div class="warn">⚠ ${escapeHtml(w)}</div>`;
   summary.innerHTML = html;
 
@@ -1598,7 +1790,7 @@ function frameKey(padding) {
 function frameRoute(options = {}) {
   if (!state.route) return;
   const points = [...state.route.path];
-  for (const ref of [state.startRef, state.endRef]) if (ref) points.push([ref.lon, ref.lat]);
+  for (const ref of [state.startRef, state.endRef, state.parkFor]) if (ref) points.push([ref.lon, ref.lat]);
   const padding = mapPadding();
   framedPadding = frameKey(padding);
   fitToPath(points, { padding, ...options });
