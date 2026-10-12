@@ -18,6 +18,7 @@ from . import config
 from .bikelink import BikeLinkStore
 from .geo import format_distance
 from .geocode import REVERSE_EXACT_M, Geocoder, display_address
+from . import elevation, osm_turns
 from .graph import RoadGraph
 from .models import (
     BikeLinkOut,
@@ -56,7 +57,10 @@ class AppState:
             roads = orjson.loads((self.data_dir / "roads.geojson").read_bytes())
             connectors = orjson.loads((self.data_dir / "connectors.json").read_bytes())
             self.graph = RoadGraph()
-            self.graph.build(roads, connectors)
+            self.graph.build(roads, connectors, osm_turns.load(self.data_dir / "bike_exempt_turns.json"))
+            grid = elevation.load_grid(self.data_dir / "elevation.npz")
+            if grid is not None:
+                self.graph.set_elevation(grid)
             del roads, connectors
             gc.collect()
         self.stations = StationStore(self.data_dir / "stations.geojson")
@@ -353,6 +357,8 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             "path": result.path,
             "distance_m": round(result.distance_m, 1),
             "duration_s": round(result.duration_s),
+            "climb_m": round(result.climb_m),
+            "descent_m": round(result.descent_m),
             "steps": [
                 {
                     "index": s["index"],

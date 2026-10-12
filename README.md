@@ -91,7 +91,10 @@ and checked against that vehicle's road-access rule (e-scooters/EUCs:
 ≤ 25 mph or in bike lanes; e-boards: under 35 mph; e-bikes/mopeds: no
 road-speed restriction) and priced by its cost profile — bike lanes and quiet
 streets are cheap, shared streets cost more, arterials cost more still, and
-anything above 45 mph is excluded outright. One-way streets, prohibited
+anything above 45 mph is excluded outright. It is also **hill-aware**: every
+junction carries its ground elevation, climbs cost extra (most for the small
+motors of scooters and boards, least for mopeds), steep grades and steep
+descents cost more still, and uphill stretches slow the ETA. One-way streets, prohibited
 turns, and Overture access rules (bicycle mode for most types, motorcycle
 mode for mopeds) are respected, not just ignored.
 
@@ -118,6 +121,11 @@ chargers, blue lockers, violet racks) when zoomed in.
    | `addresses.parquet` | Overture `addresses/address` | ~433k addresses for search |
    | `bikelink.geojson` | [bikelink.org](https://bikelink.org) `/maps` payload | SF secure bike/PEV lockers (eLockers, hangars, group parking), ~29 sites |
    | `racks.geojson` | [DataSF / SFMTA](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5) SODA API | ~6k sidewalk bike racks + on-street corrals, with space counts and install year |
+   | `bike_exempt_turns.json` | OSM turn restrictions with `except=bicycle`, via the [Overpass API](https://overpass-api.de) | ~120 SF rules; Overture drops `except`, see below |
+   | `elevation.npz` | [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (AWS Open Data; USGS 3DEP in the US) | ground elevation mosaic, zoom 14 (~7.5 m/px), sampled at every junction |
+
+   `python -m pev_buddy.sync bundle --fetch-elevation --fetch-turns` adds
+   both to an existing data directory without re-pulling Overture.
 
 2. **Routing** (`src/pev_buddy/`) builds one directed *union* graph from
    segments + connectors (every edge any vehicle type may ride) and runs A*
@@ -166,7 +174,18 @@ chargers, blue lockers, violet racks) when zoomed in.
    mopeds, which are usually bicycle-only). Effective limit > 45 mph is
    excluded for every vehicle type, as are stairs/bridleways; Overture
    `access_restrictions` clear the corresponding heading bits per access
-   mode. The API reports a per-category `segment_stats` breakdown with
+   mode.
+
+   **Hills.** Each edge's climb is the ground elevation at its end junction
+   minus its start (never mid-edge samples: the terrain under a bridge deck
+   would invent climbs on overpasses). `config.hill_cost` adds
+   `climb × k` (k = 20 / 10 / 3 for profiles A / B / C), the part of a
+   climb above 8 % weighs 3× / 2× / 1× more again, and descents steeper than
+   15 % cost profile A and B extra for braking. A 100 m block at 20 % costs
+   an e-scooter ~1,700 m of flat riding. The costs are non-negative, so the
+   straight-line A* heuristic stays admissible. ETAs divide the speed by
+   `1 + HILL_SLOWDOWN × grade` uphill, and the API reports `climb_m` /
+   `descent_m`. The API reports a per-category `segment_stats` breakdown with
    warnings for sidewalk sections, fast arterials, shared roadways, and —
    for mopeds — dedicated bike lanes.
 
@@ -283,12 +302,26 @@ measurement-driven verification are mine.
   addresses but not plug counts, kW, or live availability — the UI honestly
   says what it knows and links out for the rest.
 - **Speeds are inferred when unposted.** Overture doesn't post a speed on
-  every street, so unposted streets fall back to per-class defaults
-  (`SPEED_BY_CLASS_DEFAULT_MPH`); a posted limit always wins. Mode-scoped
+  every block. An unposted block first takes the limit of the same street
+  (same name and class) from the posted blocks it connects to: without this,
+  1.9 km of Mission St read as a 40 mph secondary and e-scooters were sent
+  over College Hill to avoid it. Streets with no posted block at all fall back
+  to per-class defaults (`SPEED_BY_CLASS_DEFAULT_MPH`); a posted limit always
+  wins. Mode-scoped
   speed limits (e.g. hgv-only) are ignored, and nothing above 45 mph is ever
   routed. The result is a *soft* speed policy — fast streets are expensive,
   not forbidden — so a walled-in destination is still reachable via an
   arterial (with a warning) instead of a dead "no route" error.
+- **Bicycle-exempt turn restrictions.** Overture imports OSM's turn
+  restrictions as `prohibited_transitions` but drops their `except` tag, so a
+  car-only rule binds every vehicle: the Muni red-lane "only right turn at
+  16th, except bicycles, buses, taxis" on Mission St became "no straight on"
+  for e-scooters, which then looped round the block. Sync pulls the
+  `except=bicycle` restrictions from Overpass, and the graph build moves the
+  matching Overture bans (same junction within 15 m, same from-street; for
+  `no_*` rules, same to-street) into a table only mopeds obey. If Overpass is
+  unreachable the existing file is kept, and without one the bans apply to
+  everyone, as before.
 - **Turns are geometry-derived.** Instructions come from bearings between
   segment endpoints plus Overture signpost `destinations` where available;
   there's no per-intersection camera-style guidance.
@@ -303,4 +336,5 @@ pulled from the public locations page at sync time — the slice is refresh
 stable and small, and a failed pull never breaks the build. Bike racks:
 SFMTA's [Bicycle Parking Racks](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5)
 dataset on DataSF (public domain / PDDL), pulled from the Socrata SODA API at
-sync time the same way.
+sync time the same way. Elevation: [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/)
+on AWS Open Data, built over the US from USGS 3DEP (public domain).

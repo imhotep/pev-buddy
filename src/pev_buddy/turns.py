@@ -42,10 +42,9 @@ def build_steps(
     geoms = [graph.edge_geometry(e) for e in edge_idxs]
     lengths = [graph.edges[e][4] for e in edge_idxs]
     veh = config.VEHICLE_TYPES[vehicle]
-    # Per-edge travel time (vehicle cap x road limit), summed per step.
-    durations = [
-        config.edge_duration_s(veh, graph.edges[e][4], graph.edges[e][5], graph.edges[e][6]) for e in edge_idxs
-    ]
+    # Per-edge travel time (vehicle cap x road limit, slowed uphill), summed per step.
+    climbs = graph.edge_climbs()
+    durations = [graph.edge_duration_s(e, veh, climbs) for e in edge_idxs]
     segs = [graph.edges[e][2] for e in edge_idxs]
     names = [graph.segments[s]["name"] for s in segs]
 

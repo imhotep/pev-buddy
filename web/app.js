@@ -1490,7 +1490,11 @@ function renderRoute(data) {
   map.getSource("pev-route-casing").setData({ type: "FeatureCollection", features: [fc] });
 
   const summary = document.getElementById("route-summary");
-  let html = `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)} · ${data.steps.length} steps<br>`;
+  // Total climb, in feet like every other distance; hidden when flat or when
+  // the server has no elevation data (climb_m 0).
+  const climbFt = Math.round(((data.climb_m || 0) * FT_PER_M) / 10) * 10;
+  const climb = climbFt >= 10 ? ` · <span class="climb" title="Total climb">↗ ${climbFt} ft</span>` : "";
+  let html = `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)}${climb} · ${data.steps.length} steps<br>`;
   html += `<span class="route-from">From ${escapeHtml(data.start_label || "start")} to ${escapeHtml(data.end_label || "destination")}</span>`;
   for (const w of data.warnings || []) html += `<div class="warn">⚠ ${escapeHtml(w)}</div>`;
   summary.innerHTML = html;

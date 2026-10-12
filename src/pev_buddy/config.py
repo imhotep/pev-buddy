@@ -192,6 +192,44 @@ COST_PROFILES = {
 }
 CATEGORIES = ("bike_lane", "living_street", "sidewalk", "quiet", "shared", "arterial")
 
+# --- Hills -------------------------------------------------------------------
+# Edge cost adds, per cost profile, for the climb along an edge (end elevation
+# above start, from the junctions' ground elevation):
+#   climb_m * climb                        every meter climbed costs `climb`
+#                                          meters of flat riding
+# + steep_climb_m * climb * steep          the part of the climb above
+#                                          STEEP_GRADE costs `steep` times more
+# + steep_descent_m * descent              likewise for a descent steeper than
+#                                          STEEP_DESCENT_GRADE (braking on small
+#                                          wheels)
+# Profile A (scooters, boards, EUCs, Class 1/2 e-bikes) has small motors and
+# 15-20 mph caps: SF's 15-30% grades stall them or crawl, so hills weigh most.
+# Mopeds barely notice. A 100 m block at 20% costs an e-scooter ~1,700 m.
+STEEP_GRADE = 0.08
+STEEP_DESCENT_GRADE = 0.15
+HILL_PROFILES = {
+    "A": {"climb": 20.0, "steep": 3.0, "descent": 4.0},
+    "B": {"climb": 10.0, "steep": 2.0, "descent": 1.0},
+    "C": {"climb": 3.0, "steep": 1.0, "descent": 0.0},
+}
+# ETA: uphill speed = travel speed / (1 + slowdown * grade).
+HILL_SLOWDOWN = {"A": 6.0, "B": 4.0, "C": 1.5}
+
+
+def hill_cost(profile: str, length_m, climb_m):
+    """Extra cost (meters-equivalent) for riding an edge that rises climb_m
+    over length_m (negative climb_m is a descent). Works on numpy arrays."""
+    import numpy as np
+
+    hp = HILL_PROFILES[profile]
+    length_m = np.asarray(length_m, dtype=np.float64)
+    climb_m = np.nan_to_num(np.asarray(climb_m, dtype=np.float64))
+    up = np.maximum(climb_m, 0.0)
+    down = np.maximum(-climb_m, 0.0)
+    steep_up = np.maximum(up - STEEP_GRADE * length_m, 0.0)
+    steep_down = np.maximum(down - STEEP_DESCENT_GRADE * length_m, 0.0)
+    return up * hp["climb"] + steep_up * hp["climb"] * hp["steep"] + steep_down * hp["climb"] * hp["descent"]
+
 # --- ETA model ---------------------------------------------------------------
 # Per-edge travel speed = min(vehicle speed cap, road effective limit)
 #                         * ETA_REALISM_FACTOR
