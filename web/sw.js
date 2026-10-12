@@ -3,14 +3,14 @@
 // /data GeoJSON bypass this worker — routes and POIs must never be stale.
 // (The big display road layer, /data/roads.display.geojson, is cached by the
 // browser's HTTP cache instead: the server sends Cache-Control + ETag.)
-const CACHE = "pev-buddy-v52";
+const CACHE = "pev-buddy-v53";
 
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=52",
-  "/app.js?v=52",
-  "/debug.js?v=52",
+  "/style.css?v=53",
+  "/app.js?v=53",
+  "/debug.js?v=53",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
