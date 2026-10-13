@@ -3,14 +3,14 @@
 // /data GeoJSON bypass this worker — routes and POIs must never be stale.
 // (The big display road layer, /data/roads.display.geojson, is cached by the
 // browser's HTTP cache instead: the server sends Cache-Control + ETag.)
-const CACHE = "pev-buddy-v57";
+const CACHE = "pev-buddy-v58";
 
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=57",
-  "/app.js?v=57",
-  "/debug.js?v=57",
+  "/style.css?v=58",
+  "/app.js?v=58",
+  "/debug.js?v=58",
   "/vendor/maplibre-gl@4.7.1/maplibre-gl.js",
   "/vendor/maplibre-gl@4.7.1/maplibre-gl.css",
   "/manifest.webmanifest",

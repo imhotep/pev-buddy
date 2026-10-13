@@ -1132,7 +1132,8 @@ def test_mopeds_park_at_chargers_or_motorcycle_parking(page):
 def test_map_pins_are_the_parking_kinds_that_fit_the_vehicle(page):
     kinds = """() => [...new Set(map.getSource('pev-pois')._data.features.map((f) => f.properties.kind))].sort()"""
     page.wait_for_function("() => map.getSource('pev-pois')")
-    assert page.evaluate(kinds) == ["charger", "locker"]  # the synthetic bundle has no racks
+    # Motorcycle parking shows for every vehicle; racks/lockers not for mopeds.
+    assert page.evaluate(kinds) == ["charger", "locker", "moto"]  # the synthetic bundle has no racks
     page.select_option("#vehicle", "moped")
     assert page.evaluate(kinds) == ["charger", "moto"]
     # Tapping a motorcycle site offers to ride there.
@@ -1147,7 +1148,7 @@ def test_map_pins_are_the_parking_kinds_that_fit_the_vehicle(page):
     assert page.text_content(".maplibregl-popup .bubble-title") == "Motorcycle parking"
     assert "3 spaces · free" in page.text_content(".maplibregl-popup .bubble-meta")
     page.select_option("#vehicle", "ebike_c3")
-    assert page.evaluate(kinds) == ["charger", "locker"]
+    assert page.evaluate(kinds) == ["charger", "locker", "moto"]
 
 
 # ------------------------------------------------ location: precise, then coarse
@@ -1385,3 +1386,59 @@ def test_content_security_policy_allows_everything_the_app_does(open_app):
     loaded = page.evaluate("() => performance.getEntriesByType('resource').map((e) => e.name)")
     assert any("/vendor/maplibre-gl@4.7.1/maplibre-gl.js" in u for u in loaded)
     assert not any("jsdelivr" in u for u in loaded)
+
+
+
+# ------------------------------------------------- map key, rider arrow, pins
+
+
+def _legend(page):
+    return page.evaluate("() => [...document.querySelectorAll('#map-legend-list li')].map((li) => li.textContent)")
+
+
+def test_map_key_explains_the_colors_for_the_vehicle(page):
+    assert page.is_visible("#map-legend-list")  # open by default on desktop
+    items = _legend(page)
+    for label in ("Your route", "Bike lane or path", "Start", "Destination", "EV charger",
+                  "BikeLink locker", "Bike rack", "Motorcycle parking"):
+        assert label in items, (label, items)
+    # The swatches use the pins' own colors; chargers no longer share the
+    # route's orange.
+    colors = page.evaluate("() => PIN_COLORS")
+    assert colors["charger"].lower() != "#ffb02e"
+    paint = page.evaluate("() => JSON.stringify(map.getPaintProperty('pev-pois', 'circle-color'))")
+    for c in colors.values():
+        assert c in paint
+    # A moped's key drops what its map drops.
+    page.select_option("#vehicle", "moped")
+    items = _legend(page)
+    assert "Bike rack" not in items and "BikeLink locker" not in items and "Motorcycle parking" in items
+
+
+def test_map_key_folds_and_remembers(page):
+    page.click(".pev-legend-toggle")
+    assert page.is_hidden("#map-legend-list")
+    assert page.get_attribute(".pev-legend-toggle", "aria-expanded") == "false"
+    page.reload()
+    page.wait_for_selector("#map-loading", state="detached")
+    assert page.is_hidden("#map-legend-list")
+    page.click(".pev-legend-toggle")
+    assert page.is_visible("#map-legend-list")
+
+
+def test_map_key_starts_folded_on_a_phone_and_hides_while_riding(open_app):
+    page = open_app(390, 844, init_scripts=[GEO_AND_SPEECH_MOCK])
+    assert page.is_visible(".pev-legend-toggle") and page.is_hidden("#map-legend-list")
+    route_via_ui(page)
+    page.click("#start-ride")
+    assert page.is_hidden(".pev-legend")
+
+
+def test_rider_is_a_red_arrow_that_turns_with_the_heading(ride_page):
+    page = ride_page
+    route_via_ui(page)
+    page.click("#start-ride")
+    fix_at(page, 0, 0, heading=90, speed=5)
+    page.wait_for_selector(".rider-puck svg path")
+    assert page.get_attribute(".rider-puck svg path", "fill").lower() == "#e82127"
+    assert page.evaluate("() => Math.round(riderMarker.getRotation())") == 90
