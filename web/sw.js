@@ -3,14 +3,16 @@
 // /data GeoJSON bypass this worker — routes and POIs must never be stale.
 // (The big display road layer, /data/roads.display.geojson, is cached by the
 // browser's HTTP cache instead: the server sends Cache-Control + ETag.)
-const CACHE = "pev-buddy-v56";
+const CACHE = "pev-buddy-v57";
 
 const SHELL = [
   "/",
   "/index.html",
-  "/style.css?v=56",
-  "/app.js?v=56",
-  "/debug.js?v=56",
+  "/style.css?v=57",
+  "/app.js?v=57",
+  "/debug.js?v=57",
+  "/vendor/maplibre-gl@4.7.1/maplibre-gl.js",
+  "/vendor/maplibre-gl@4.7.1/maplibre-gl.css",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -50,9 +52,10 @@ self.addEventListener("fetch", (e) => {
     );
     return;
   }
-  // App shell and CDN assets (MapLibre, basemap tiles/fonts): cache-first,
-  // filling the cache as we go. ?v=N assets are immutable per version.
-  if (url.origin === location.origin || /jsdelivr\.net|basemaps\.cartocdn\.com/.test(url.host)) {
+  // App shell (MapLibre is vendored under /vendor/) and basemap tiles/fonts:
+  // cache-first, filling the cache as we go. ?v=N assets are immutable per
+  // version, as is the versioned vendor path.
+  if (url.origin === location.origin || /(^|\.)basemaps\.cartocdn\.com$/.test(url.host)) {
     e.respondWith(
       caches.match(e.request).then(
         (hit) =>

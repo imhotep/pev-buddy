@@ -294,6 +294,10 @@ tap from the route.
 
 4. **UI** is a dependency-free vanilla-JS + MapLibre GL single page,
    installable as a PWA (`web/`: `app.js`, `debug.js`, `style.css`, `sw.js`).
+   MapLibre GL 4.7.1 is vendored in `web/vendor/` (byte-identical to the npm
+   release, with its license) and loaded with `integrity` hashes, so no
+   third-party script or stylesheet runs; the only outside requests are the
+   CARTO basemap's style, tiles, fonts and sprites.
    - **Map:** the rideable network, plus one clustered layer of the parking
      kinds that fit the selected vehicle (count bubbles zoomed out, colored
      pins zoomed in: amber chargers, blue lockers, violet racks, pink
@@ -323,6 +327,17 @@ tap from the route.
    - **Service worker:** cache-first for the versioned app shell
      (`?v=N`, bumped with every JS/CSS change), network-first for the page,
      never for `/api` or `/data`.
+
+5. **Security headers.** Every response carries HSTS,
+   `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+   strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, a
+   `Permissions-Policy` allowing only the app's own geolocation, motion
+   sensors and wake lock, and a content security policy
+   (`config.CONTENT_SECURITY_POLICY`: own scripts only, the CARTO basemap,
+   blob workers for MapLibre, no framing). The policy is **report-only by
+   default**: browsers report what it would block to `/api/csp-report`,
+   which logs it. Set `PEV_BUDDY_CSP_ENFORCE=1` to enforce it once that log
+   stays quiet; the test suite checks the app's flows trigger no violation.
 
 ## Run it
 
@@ -398,6 +413,13 @@ uvicorn on `127.0.0.1:8765`, and [Caddy](https://caddyserver.com) fronts it
 with automatic Let's Encrypt HTTPS (`deploy/Caddyfile`: one `reverse_proxy`
 block per subdomain, so other apps can share the box). Releases are tagged
 (`v0.1.0`, `v0.2.0`, …) so any release can be restored.
+
+Two server settings live outside the repo's deploy script and are set once
+by hand: run uvicorn with `--no-server-header` in the unit's `ExecStart`
+(`deploy/setup.sh` does for new installs), and add `header -Server` plus a
+`header_down -Server` in the `reverse_proxy` block of the Caddyfile (see
+`deploy/Caddyfile`), so neither names itself. To enforce the content
+security policy, add `Environment=PEV_BUDDY_CSP_ENFORCE=1` to the unit.
 
 **Deploying** is one command from your dev machine. The data bundle is built
 there (it needs ~1.5 GB RAM) and pushed with the code:
@@ -513,7 +535,9 @@ measurement-driven verification are mine.
 
 ## Data & licenses
 
-Map data: [Overture Maps](https://overturemaps.org), released under
+Map rendering: [MapLibre GL JS](https://maplibre.org) 4.7.1 (BSD-3-Clause),
+vendored with its license in `web/vendor/`. Map data:
+[Overture Maps](https://overturemaps.org), released under
 [CDLA-Permissive-2.0](https://cdla.dev/permissive-2-0/), with OSM-derived
 upstream attribution. Bicycle-exempt turn restrictions: © OpenStreetMap
 contributors, [ODbL](https://opendatacommons.org/licenses/odbl/), via the
