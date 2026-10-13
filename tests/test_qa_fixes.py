@@ -86,3 +86,42 @@ def test_route_to_outside_the_city_says_so(client):
     assert r.status_code == 400
     d = r.json()["detail"]
     assert d["code"] == "outside_area" and "outside San Francisco" in d["message"]
+
+
+# --- #26: search cost bounded -------------------------------------------------
+
+
+def test_search_ignores_one_character_and_rejects_huge_queries(client):
+    assert client.get("/api/search", params={"q": "e"}).json() == []
+    assert client.get("/api/search", params={"q": "  t  "}).json() == []
+    assert client.get("/api/search", params={"q": "x" * 101}).status_code == 422
+    assert client.get("/api/search", params={"q": "Te"}).json()  # two is enough
+
+
+def test_prefix_and_substring_matching():
+    from pathlib import Path
+    import orjson
+    import tempfile
+    from pev_buddy.pois import POIIndex
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "places.json"
+        p.write_bytes(orjson.dumps([
+            ["a", "Cafe Encore", "cafe", "488 Post St", -122.41, 37.79],
+            ["b", "Encore Karaoke", "bar", "1 X St", -122.42, 37.79],
+            ["c", "Encore", "bar", "2 X St", -122.43, 37.79],
+        ]))
+        idx = POIIndex(p)
+        names = [r["name"] for r in idx.search("encore")]
+        assert names[:2] == ["Encore", "Encore Karaoke"]  # exact, then prefix
+        assert "Cafe Encore" in names  # substring, 3+ characters
+        assert [r["name"] for r in idx.search("en")] == ["Encore", "Encore Karaoke"]  # 2 chars: prefixes only
+
+
+# --- #37: results with no address ---------------------------------------------
+
+
+def test_place_without_address_says_which_street_it_is_near(client):
+    res = client.get("/api/search", params={"q": "Corner Kiosk"}).json()
+    kiosk = next(r for r in res if r["text"] == "Corner Kiosk")
+    assert kiosk["address"] == "Near 10 Side St"

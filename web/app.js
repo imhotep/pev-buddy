@@ -1004,7 +1004,75 @@ function hideSearchResults() {
   searchResults.classList.add("hidden");
   searchInput.setAttribute("aria-expanded", "false");
   searchStatus.textContent = "";
+  setActiveResult(-1);
 }
+
+// Keyboard navigation (combobox + listbox): focus stays in the input, the
+// arrow keys move a highlighted option (announced through
+// aria-activedescendant), Enter picks it for the row the app is asking for,
+// Shift+Enter for the other one.
+let searchItems = []; // the results on show, in order
+let activeResult = -1;
+function setActiveResult(i) {
+  const opts = searchResults.querySelectorAll('[role="option"]');
+  activeResult = opts.length ? Math.max(-1, Math.min(i, opts.length - 1)) : -1;
+  opts.forEach((o, j) => {
+    o.classList.toggle("active", j === activeResult);
+    o.setAttribute("aria-selected", String(j === activeResult));
+  });
+  if (activeResult < 0) {
+    searchInput.removeAttribute("aria-activedescendant");
+    return;
+  }
+  const el = opts[activeResult];
+  searchInput.setAttribute("aria-activedescendant", el.id);
+  // Keep it in view inside the list without scrolling the page.
+  const top = el.offsetTop, bottom = top + el.offsetHeight;
+  if (top < searchResults.scrollTop) searchResults.scrollTop = top;
+  else if (bottom > searchResults.scrollTop + searchResults.clientHeight) searchResults.scrollTop = bottom - searchResults.clientHeight;
+}
+
+// The row Enter fills: the one the app is asking for (the highlighted trip
+// row), else the destination.
+function preferredSearchTarget() {
+  return document.getElementById("start-row").classList.contains("needs-input") ? "start" : "end";
+}
+
+function pickSearchResult(r, kind) {
+  const ref = {
+    kind: r.kind === "station" || r.kind === "bikelink" ? r.kind : "point",
+    station_id: r.station_id || null,
+    label: r.text,
+    lat: r.lat,
+    lon: r.lon,
+  };
+  if (kind === "start") setStart(ref);
+  else setEnd(ref);
+  map.flyTo({ center: [r.lon, r.lat], zoom: 15, ...FLY });
+  // The pick now lives in the Start/Destination row; clear the box so it is
+  // ready for the next search.
+  searchInput.value = "";
+  hideSearchResults();
+}
+
+searchInput.addEventListener("keydown", (e) => {
+  if (searchResults.classList.contains("hidden") || !searchItems.length) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const step = e.key === "ArrowDown" ? 1 : -1;
+    const n = searchItems.length;
+    setActiveResult(activeResult < 0 ? (step > 0 ? 0 : n - 1) : (activeResult + step + n) % n);
+  } else if (e.key === "Enter" && activeResult >= 0) {
+    e.preventDefault();
+    const r = searchItems[activeResult];
+    if (r.in_service_area === false) {
+      searchStatus.textContent = `${r.text} is outside San Francisco: PEV Buddy only routes within the city.`;
+      return;
+    }
+    const target = preferredSearchTarget();
+    pickSearchResult(r, e.shiftKey ? (target === "start" ? "end" : "start") : target);
+  }
+});
 
 searchInput.addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -1029,16 +1097,23 @@ async function runSearch(q) {
     const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=8`);
     if (!res.ok) throw new Error();
     const items = await res.json();
+    searchItems = items;
+    activeResult = -1;
     if (!items.length) {
-      searchResults.innerHTML = `<div class="result muted">No matches</div>`;
+      // Shown, but hidden from screen readers: the status line announces it
+      // (it used to be read twice).
+      searchResults.innerHTML = `<div class="result muted" aria-hidden="true">No matches</div>`;
       showSearchResults();
       searchStatus.textContent = "No matches";
       return;
     }
     searchResults.innerHTML = "";
-    for (const r of items) {
+    items.forEach((r, idx) => {
       const div = document.createElement("div");
       div.className = "result";
+      div.id = `search-opt-${idx}`;
+      div.setAttribute("role", "option");
+      div.setAttribute("aria-selected", "false");
       const label = document.createElement("span");
       label.textContent = r.text;
       // "Category · address" so same-named places (eight "Ferry Building…"
@@ -1056,6 +1131,9 @@ async function runSearch(q) {
         const b = document.createElement("button");
         b.className = "mini";
         b.textContent = text;
+        // Pointer and touch use the buttons; keyboard users pick with Enter
+        // from the input, so the buttons stay out of the tab order.
+        b.tabIndex = -1;
         // Across the Bay: on the map, but PEV Buddy only routes within SF.
         if (outside) {
           b.disabled = true;
@@ -1063,20 +1141,7 @@ async function runSearch(q) {
         }
         b.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          const ref = {
-            kind: r.kind === "station" || r.kind === "bikelink" ? r.kind : "point",
-            station_id: r.station_id || null,
-            label: r.text,
-            lat: r.lat,
-            lon: r.lon,
-          };
-          if (kind === "start") setStart(ref);
-          else setEnd(ref);
-          map.flyTo({ center: [r.lon, r.lat], zoom: 15, ...FLY });
-          // The pick now lives in the Start/Destination row; clear the box so
-          // it is ready for the next search.
-          searchInput.value = "";
-          hideSearchResults();
+          pickSearchResult(r, kind);
         });
         row.appendChild(b);
       }
@@ -1086,7 +1151,7 @@ async function runSearch(q) {
         hideSearchResults();
       });
       searchResults.appendChild(div);
-    }
+    });
     showSearchResults();
     searchStatus.textContent = `${items.length} result${items.length === 1 ? "" : "s"}`;
   } catch {

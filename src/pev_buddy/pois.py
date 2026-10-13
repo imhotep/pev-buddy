@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from pathlib import Path
 
 import numpy as np
@@ -55,6 +56,9 @@ class POIIndex:
         self.cat_vocab = cat_vocab
         self.cat_code = cat_code
         self.by_name: dict[str, tuple[int, ...]] = {k: tuple(v) for k, v in grouped.items()}
+        # Sorted folded names: prefix matches are a bisect, not a scan of
+        # every name on each keystroke.
+        self.sorted_names: list[str] = sorted(self.by_name)
 
     def __len__(self) -> int:
         return len(self.names)
@@ -66,16 +70,19 @@ class POIIndex:
         scored: list[tuple[int, int]] = []
         for i in self.by_name.get(q, ()):
             scored.append((100, i))
-        if len(scored) < limit * 2:
+        want = limit * 2
+        if len(scored) < want:
+            lo = bisect_left(self.sorted_names, q)
+            hi = bisect_left(self.sorted_names, q + "\uffff")
+            for name in self.sorted_names[lo:hi]:
+                if name != q:  # exact already scored
+                    scored.extend((80, i) for i in self.by_name[name])
+        # Substring matches ("encore" in "cafe encore") need a scan: only for
+        # queries of 3+ characters, and only when prefixes left room.
+        if len(scored) < want and len(q) >= 3:
             for name, idxs in self.by_name.items():
-                if name == q:
-                    continue  # already scored as exact
-                if name.startswith(q):
-                    for i in idxs:
-                        scored.append((80, i))
-                elif q in name:
-                    for i in idxs:
-                        scored.append((60, i))
+                if q in name and not name.startswith(q):
+                    scored.extend((60, i) for i in idxs)
         scored.sort(key=lambda t: (-t[0], len(self.names[t[1]]), self.names[t[1]].casefold()))
         out: list[dict] = []
         for score, i in scored[:limit]:

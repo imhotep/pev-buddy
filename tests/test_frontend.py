@@ -1299,3 +1299,59 @@ def test_places_outside_the_city_are_labeled_and_not_pickable(page):
     assert outside.locator("button").evaluate_all("bs => bs.every((b) => b.disabled)")
     inside = page.locator("#search-results .result:not(.outside)").first
     assert inside.locator("button").evaluate_all("bs => bs.every((b) => !b.disabled)")
+
+
+# ------------------------------------------------- QA fixes: #33, #37 (search)
+
+
+def test_search_results_work_from_the_keyboard(page):
+    # #33: arrow keys move a highlighted option, Enter picks it.
+    page.fill("#search", "Test Bakery")
+    page.wait_for_selector("#search-results [role=option]")
+    assert page.get_attribute("#search", "role") == "combobox"
+    assert page.get_attribute("#search-results", "role") == "listbox"
+    page.press("#search", "ArrowDown")
+    active = page.get_attribute("#search", "aria-activedescendant")
+    assert active and page.get_attribute(f"#{active}", "aria-selected") == "true"
+    assert "Test Bakery" in page.text_content(f"#{active}")
+    # Desktop, nothing set: the Start row is the one asked for.
+    page.press("#search", "Enter")
+    page.wait_for_function("() => state.startRef")
+    assert page.evaluate("() => state.startRef.label") == "Test Bakery"
+    assert page.is_hidden("#search-results")
+    # Shift+Enter fills the other row (the destination is asked for now).
+    page.fill("#search", "Side Street")
+    page.wait_for_selector("#search-results [role=option]")
+    page.press("#search", "ArrowDown")
+    page.press("#search", "Shift+Enter")
+    assert page.evaluate("() => state.startRef.label") == "Side Street Deli"
+    # ArrowUp from nothing wraps to the last option; Escape closes.
+    page.fill("#search", "Test Bakery")
+    page.wait_for_selector("#search-results [role=option]")
+    page.press("#search", "ArrowUp")
+    n = page.locator("#search-results [role=option]").count()
+    assert page.get_attribute("#search", "aria-activedescendant") == f"search-opt-{n - 1}"
+    page.press("#search", "Escape")
+    assert page.is_hidden("#search-results")
+
+
+def test_keyboard_pick_refuses_a_place_outside_the_city(page):
+    page.fill("#search", "Test Bakery Oakland")
+    page.wait_for_selector("#search-results .result.outside")
+    for _ in range(page.locator("#search-results [role=option]").count()):
+        page.press("#search", "ArrowDown")
+        if "outside" in (page.get_attribute(f"#{page.get_attribute('#search', 'aria-activedescendant')}", "class") or ""):
+            break
+    page.press("#search", "Enter")
+    assert page.evaluate("() => state.startRef") is None
+    assert "outside San Francisco" in page.text_content("#search-status")
+
+
+def test_no_matches_is_announced_once_and_footer_is_vehicle_neutral(page):
+    # #37
+    page.fill("#search", "zzqqxx123")
+    page.wait_for_selector("#search-results:not(.hidden)")
+    assert page.get_attribute("#search-results .result.muted", "aria-hidden") == "true"
+    assert page.text_content("#search-status") == "No matches"
+    footer = page.text_content("#sidebar footer")
+    assert "Routes are guidance" in footer and "e-bike guidance" not in footer

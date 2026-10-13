@@ -122,7 +122,9 @@ h1 {
   border-bottom: 1px solid var(--border);
 }
 #search-results .result:last-child { border-bottom: none; }
-#search-results .result:hover { background: #24344a; }
+#search-results .result:hover,
+#search-results .result.active { background: #24344a; }
+#search-results .result.active { box-shadow: inset 3px 0 0 var(--accent); }
 #search-results .result small { display: block; color: var(--muted); margin-top: 2px; }
 #search-results .result.outside > span { color: var(--muted); }
 

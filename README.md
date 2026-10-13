@@ -269,7 +269,12 @@ tap from the route.
    Bay are in the data (the extract's box is wider than the city): search
    marks them `in_service_area: false` and ranks them last, the UI labels them
    "Outside service area" and won't pick them, and a route to or from outside
-   the city gets a clear `outside_area` error.
+   the city gets a clear `outside_area` error. A place with no address of its
+   own is labeled with the street it's near ("Near 10 Side St") so
+   same-named results can be told apart. Queries under two characters return
+   nothing and over 100 are rejected; place names are matched by a sorted
+   prefix index (a bisect), with a substring scan only for 3+ characters, so
+   a keystroke costs a few milliseconds.
 
    **Errors** from `/api/route` and `/api/walk` are `{"detail": {"code",
    "message"}}`: a stable code (`off_network`, `outside_area`,
@@ -294,7 +299,10 @@ tap from the route.
      pins zoomed in: amber chargers, blue lockers, violet racks, pink
      motorcycle parking).
    - **Trip:** unified search for start or destination (case- and
-     accent-insensitive), tap-the-map "Start here / Go here", draggable pins,
+     accent-insensitive, from two characters, keyboard-navigable: the arrow
+     keys move through results, Enter picks one for the highlighted trip row
+     and Shift+Enter for the other; screen readers follow along through the
+     combobox / listbox pattern), tap-the-map "Start here / Go here", draggable pins,
      GPS (a precise fix, falling back to an approximate one), and on phones a
      start that defaults to your location.
    - **Park near destination:** the nearest charger / locker / rack (or
