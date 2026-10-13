@@ -31,6 +31,42 @@ SF_BBOX = (-122.55, 37.65, -122.30, 37.87)
 SERVICE_BOUNDS = (-122.52, 37.70, -122.35, 37.84)
 
 
+# --- HTTP security headers (api.py adds them to every response) --------------
+# The page loads only its own files (MapLibre is vendored under web/vendor/)
+# plus the CARTO basemap (style, tiles, fonts, sprites); MapLibre decodes
+# tiles in blob: workers. Inline styles stay allowed: MapLibre and the debug
+# panel set them. Geolocation, motion sensors (the compass) and the wake lock
+# are the app's own; nothing else.
+_CARTO = "https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com"
+CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        f"img-src 'self' data: blob: {_CARTO}",
+        f"connect-src 'self' {_CARTO}",
+        "worker-src 'self' blob:",
+        "font-src 'self'",
+        "manifest-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "report-uri /api/csp-report",
+    ]
+)
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": (
+        "geolocation=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self), "
+        "screen-wake-lock=(self), camera=(), microphone=(), payment=(), usb=()"
+    ),
+}
+
+
 def in_service_area(lon: float, lat: float) -> bool:
     xmin, ymin, xmax, ymax = SERVICE_BOUNDS
     return xmin <= lon <= xmax and ymin <= lat <= ymax

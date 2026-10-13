@@ -8,7 +8,12 @@
 # Caddy obtains and renews the TLS certificate by itself on first start.
 
 pev.EXAMPLE.COM {
-	reverse_proxy 127.0.0.1:8765
+	# The app sets its own security headers (HSTS, CSP, nosniff, ...; see
+	# config.SECURITY_HEADERS). Caddy just stops naming itself.
+	header -Server
+	reverse_proxy 127.0.0.1:8765 {
+		header_down -Server
+	}
 }
 
 # Optional: a second subdomain for another app on the same box.

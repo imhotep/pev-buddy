@@ -1355,3 +1355,33 @@ def test_no_matches_is_announced_once_and_footer_is_vehicle_neutral(page):
     assert page.text_content("#search-status") == "No matches"
     footer = page.text_content("#sidebar footer")
     assert "Routes are guidance" in footer and "e-bike guidance" not in footer
+
+
+# ------------------------------------------- #28: the CSP blocks nothing we use
+
+CSP_WATCH = """
+window.__csp = [];
+document.addEventListener('securitypolicyviolation', (e) =>
+  window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
+"""
+
+
+def test_content_security_policy_allows_everything_the_app_does(open_app):
+    # Report-only still fires securitypolicyviolation: anything the policy
+    # would block once enforced shows up here.
+    page = open_app(init_scripts=[CSP_WATCH, GEO_AND_SPEECH_MOCK])
+    route_via_ui(page)
+    page.locator("#steps li").nth(1).click()  # the desktop drawer is open
+    page.click("#start-ride")
+    fix_at(page, 0, 0)
+    page.click("#end-ride")
+    page.evaluate("() => pev.hud(true)")  # injects its own <style>
+    page.fill("#search", "Test Bakery")
+    page.wait_for_selector("#search-results [role=option]")
+    page.wait_for_timeout(500)
+    assert page.evaluate("() => window.__csp") == []
+    # The vendored copy is what ran.
+    assert page.evaluate("() => typeof maplibregl.Map") == "function"
+    loaded = page.evaluate("() => performance.getEntriesByType('resource').map((e) => e.name)")
+    assert any("/vendor/maplibre-gl@4.7.1/maplibre-gl.js" in u for u in loaded)
+    assert not any("jsdelivr" in u for u in loaded)

@@ -92,6 +92,23 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="PEV Buddy", lifespan=lifespan)
+
+    # Security headers on every response (also behind Caddy, so they ship
+    # with the app). The content security policy is report-only by default:
+    # browsers log what it would block, and POST it to /api/csp-report, which
+    # lands in the server log. Set PEV_BUDDY_CSP_ENFORCE=1 to enforce it once
+    # the log stays quiet.
+    csp_header = (
+        "Content-Security-Policy" if os.environ.get("PEV_BUDDY_CSP_ENFORCE") == "1" else "Content-Security-Policy-Report-Only"
+    )
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        for name, value in config.SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        response.headers.setdefault(csp_header, config.CONTENT_SECURITY_POLICY)
+        return response
     # roads.geojson is ~39 MB raw — gzip makes the initial map load ~5x lighter
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
@@ -132,6 +149,13 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         if ref.lat is not None and ref.lon is not None:
             return ref.lon, ref.lat, ref.label or "map location"
         raise api_error(400, "bad_request", f"The {kind} needs a location (lat/lon, an address, or a station).")
+
+    @app.post("/api/csp-report", include_in_schema=False, status_code=204)
+    async def csp_report(request: Request) -> Response:
+        """Browsers report content-security-policy violations here."""
+        body = (await request.body())[:4096]
+        log.warning("CSP violation: %s", body.decode("utf-8", "replace"))
+        return Response(status_code=204)
 
     @app.get("/api/health")
     def health() -> dict:

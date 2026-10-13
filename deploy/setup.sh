@@ -71,7 +71,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=$APP_DIR
-ExecStart=$APP_DIR/.venv/bin/uvicorn pev_buddy.api:app --host 127.0.0.1 --port $PORT
+ExecStart=$APP_DIR/.venv/bin/uvicorn pev_buddy.api:app --host 127.0.0.1 --port $PORT --no-server-header
 Restart=always
 RestartSec=3
 
