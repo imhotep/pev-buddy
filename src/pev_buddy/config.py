@@ -25,6 +25,15 @@ DATA_DIR = Path(os.environ.get("PEV_BUDDY_DATA", PROJECT_ROOT / "data"))
 
 # San Francisco plus a little headroom (bridge approaches, Muni reach).
 SF_BBOX = (-122.55, 37.65, -122.30, 37.87)
+# Where routes may start and end: the city itself (the extract above is
+# wider, so places across the Bay show up in the data). The frontend's
+# SF_BOUNDS is the same box.
+SERVICE_BOUNDS = (-122.52, 37.70, -122.35, 37.84)
+
+
+def in_service_area(lon: float, lat: float) -> bool:
+    xmin, ymin, xmax, ymax = SERVICE_BOUNDS
+    return xmin <= lon <= xmax and ymin <= lat <= ymax
 
 OVERTURE_RELEASE = os.environ.get("PEV_BUDDY_RELEASE", "2026-09-23.0")
 

@@ -564,7 +564,10 @@ const DEFAULT_START_LABEL = IS_MOBILE
   : "Not set — use your location, search, or tap the map and choose “Start here”";
 const DEFAULT_END_LABEL = "Not set — search, or tap the map or a pin and choose “Go here”";
 
-function setStart(ref) {
+// `viaLocation`: the device position filled it in. Any other pick wins over
+// a location lookup still running, and clears its message.
+function setStart(ref, viaLocation = false) {
+  if (!viaLocation) settleLocation("start");
   state.startRef = ref;
   startMarker.setLngLat([ref.lon, ref.lat]).addTo(map);
   syncTripLabels();
@@ -572,7 +575,8 @@ function setStart(ref) {
 }
 
 // A destination the rider picked: any "park near" choice is dropped.
-function setEnd(ref) {
+function setEnd(ref, viaLocation = false) {
+  if (!viaLocation) settleLocation("end");
   state.parkFor = null;
   state.parkKind = null;
   placeEnd(ref);
@@ -859,11 +863,31 @@ function toggleStepsDrawer() {
 document.getElementById("show-steps").addEventListener("click", toggleStepsDrawer);
 
 // In-page status line under the trip rows (replaces blocking alerts).
-function showTripStatus(text, isError = false) {
+// `source` says what it is about ("locate-start" / "locate-end": a location
+// lookup), so picking a point another way can clear a stale location message.
+let tripStatusSource = null;
+function showTripStatus(text, isError = false, source = null) {
   const el = document.getElementById("trip-status");
   el.textContent = text;
   el.classList.toggle("error", isError);
   el.classList.toggle("hidden", !text);
+  tripStatusSource = text ? source : null;
+}
+
+// A location lookup per row; a newer pick (or lookup) for the same row makes
+// an older lookup's answer stale.
+const locateSeq = { start: 0, end: 0 };
+
+// The rider set this row some other way: drop a lookup still running for it,
+// and a location message that no longer applies.
+function settleLocation(which) {
+  locateSeq[which] += 1;
+  const button = document.getElementById(which === "end" ? "use-location-end" : "use-location");
+  if (button) button.disabled = false;
+  if (which === "start") locating = false;
+  if (tripStatusSource === `locate-${which}` || (tripStatusSource && tripStatusSource.startsWith("locate") && document.getElementById("trip-status").classList.contains("error"))) {
+    showTripStatus("");
+  }
 }
 
 const LOCATION_ERRORS = {
@@ -875,7 +899,7 @@ const LOCATION_ERRORS = {
 // Fill the start or destination with the device position, reporting every
 // outcome in the page: in progress, success, and each failure mode.
 function useMyLocation(which, { auto = false, quiet = false } = {}) {
-  const say = quiet ? () => {} : showTripStatus;
+  const say = quiet ? () => {} : (text, isError = false) => showTripStatus(text, isError, `locate-${which}`);
   if (!window.isSecureContext) {
     if (quiet) return;
     return showTripStatus("Location needs a secure (https) connection. Search or tap the map instead.", true);
@@ -887,6 +911,8 @@ function useMyLocation(which, { auto = false, quiet = false } = {}) {
   button.disabled = true;
   if (which === "start") locating = true;
   say("Finding your location…");
+  const seq = ++locateSeq[which];
+  const stale = () => seq !== locateSeq[which]; // the rider picked another way
   const done = () => {
     button.disabled = false;
     if (which === "start") locating = false;
@@ -894,6 +920,7 @@ function useMyLocation(which, { auto = false, quiet = false } = {}) {
   };
   locateOnce(
     (pos) => {
+      if (stale()) return;
       done();
       // Filled in automatically, but the rider picked a start meanwhile.
       if (auto && state.startRef) return say("");
@@ -904,13 +931,14 @@ function useMyLocation(which, { auto = false, quiet = false } = {}) {
       }
       say("");
       const ref = { kind: "coords", lat, lon, label: "My location" };
-      if (which === "end") setEnd(ref);
-      else setStart(ref);
+      if (which === "end") setEnd(ref, true);
+      else setStart(ref, true);
       // With a destination set the route fit frames both; otherwise show
       // where the rider is.
       if (!state.endRef || which === "end") map.flyTo({ center: [lon, lat], zoom: 14, ...FLY });
     },
     (err) => {
+      if (stale()) return;
       done();
       say(LOCATION_ERRORS[err.code] || "Could not get your location. Search or tap the map instead.", true);
     }
@@ -923,8 +951,10 @@ function useMyLocation(which, { auto = false, quiet = false } = {}) {
 // timeout: then ask once more for any position, network-based or recent,
 // which is what puts a laptop on the map in other map apps. A denied
 // permission is final.
-const PRECISE_FIX = { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 };
-const COARSE_FIX = { enableHighAccuracy: false, timeout: 15000, maximumAge: 5 * 60 * 1000 };
+// Six seconds each: a rider waits about 12 s at most before hearing what to
+// do instead (it was up to 25 s).
+const PRECISE_FIX = { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 };
+const COARSE_FIX = { enableHighAccuracy: false, timeout: 6000, maximumAge: 5 * 60 * 1000 };
 function locateOnce(ok, fail) {
   navigator.geolocation.getCurrentPosition(
     ok,
@@ -1014,7 +1044,11 @@ async function runSearch(q) {
       // "Category · address" so same-named places (eight "Ferry Building…"
       // hits) can be told apart.
       const sub = document.createElement("small");
-      sub.textContent = [r.category || "Place", r.address].filter(Boolean).join(" · ");
+      const outside = r.in_service_area === false;
+      sub.textContent = [r.category || "Place", r.address, outside ? "Outside service area" : null]
+        .filter(Boolean)
+        .join(" · ");
+      if (outside) div.classList.add("outside");
       div.append(label, sub);
       const row = document.createElement("div");
       row.style.cssText = "display:flex;gap:6px;margin-top:6px;";
@@ -1022,6 +1056,11 @@ async function runSearch(q) {
         const b = document.createElement("button");
         b.className = "mini";
         b.textContent = text;
+        // Across the Bay: on the map, but PEV Buddy only routes within SF.
+        if (outside) {
+          b.disabled = true;
+          b.title = "Outside San Francisco: PEV Buddy only routes within the city";
+        }
         b.addEventListener("click", (ev) => {
           ev.stopPropagation();
           const ref = {
@@ -1640,7 +1679,7 @@ function rerouteFrom([lon, lat]) {
   ride.rerouting = true;
   setRideStatus("Off route — rerouting…");
   speak("Rerouting.");
-  setStart({ kind: "coords", lat, lon, label: "My location" });
+  setStart({ kind: "coords", lat, lon, label: "My location" }, true);
 }
 
 function renderRideBanner(distance) {
@@ -1791,7 +1830,7 @@ async function computeRoute() {
     });
     const data = await res.json();
     if (request !== routeRequest) return; // superseded while the body streamed in
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    if (!res.ok) throw new Error(apiErrorMessage(data, res.status));
     renderRoute(data);
   } catch (err) {
     if (err.name === "AbortError" || request !== routeRequest) return;
@@ -1809,6 +1848,16 @@ async function computeRoute() {
   } finally {
     if (request === routeRequest) routeRequest = null;
   }
+}
+
+// The words to show for a failed API call: the server's plain `message`
+// ({code, message} errors), else its text, else a generic line. Never raw
+// internals: the server keeps those for its log.
+function apiErrorMessage(data, status) {
+  const d = data && data.detail;
+  if (d && typeof d === "object" && d.message) return d.message;
+  if (typeof d === "string" && status < 500) return d;
+  return status === 503 ? "The map is still loading. Try again in a moment." : "Something went wrong finding a route. Try again.";
 }
 
 function refToApi(ref) {
@@ -1840,7 +1889,13 @@ function renderRoute(data) {
   // the server has no elevation data (climb_m 0).
   const climbFt = Math.round(((data.climb_m || 0) * FT_PER_M) / 10) * 10;
   const climb = climbFt >= 10 ? ` · <span class="climb" title="Total climb">↗ ${climbFt} ft</span>` : "";
-  let html = `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)}${climb} · ${data.steps.length} steps<br>`;
+  const n = data.steps.length;
+  // Start and destination at one spot: nothing to ride.
+  const here = data.distance_m < 1;
+  document.getElementById("start-ride").classList.toggle("hidden", here);
+  let html = here
+    ? `<b>You're already there</b>: the start and destination are the same spot.<br>`
+    : `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)}${climb} · ${n} step${n === 1 ? "" : "s"}<br>`;
   html += `<span class="route-from">From ${escapeHtml(data.start_label || "start")} to ${escapeHtml(data.end_label || "destination")}</span>`;
   if (state.parkFor) {
     html += `<div class="park-note">${walkNote()}</div>`;

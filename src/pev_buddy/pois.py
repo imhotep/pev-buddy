@@ -8,6 +8,7 @@ import numpy as np
 import orjson
 
 from . import config
+from .place_fixes import is_bad_place
 from .text import fold
 
 
@@ -32,6 +33,8 @@ class POIIndex:
     def __init__(self, path: Path | None = None):
         path = path or config.DATA_DIR / "places.json"
         rows = orjson.loads(Path(path).read_bytes())
+        # Known-misplaced records (see place_fixes): never offered.
+        rows = [r for r in rows if not is_bad_place(r[1], r[2])]
         n = len(rows)
         self.names: list[str] = [r[1] for r in rows]
         self.addresses: list = [r[3] for r in rows]

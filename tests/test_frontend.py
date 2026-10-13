@@ -6,6 +6,7 @@ server bound to a throwaway port. They are skipped automatically when
 Playwright or Chrome is not installed.
 """
 
+import re
 import threading
 import time
 
@@ -1215,3 +1216,86 @@ def test_parking_walk_follows_the_streets(page):
     page.wait_for_function("() => /min\\)/.test(document.querySelector('#route-summary .park-note').textContent)")
     assert "Then walk" in page.text_content("#route-summary .park-note")
 
+
+
+# --------------------------------------------- QA fixes: #25, #34, #35, #36
+
+
+def test_point_off_the_network_shows_a_plain_message(page):
+    # #25: a destination in the water used to print coordinates and node
+    # distances.
+    _set_trip_m(page, (0, -100), (3000, 3000), end_label="The Bay")
+    page.wait_for_function("() => /isn't near a street/.test(document.getElementById('route-summary').textContent)")
+    text = page.text_content("#route-summary")
+    assert "farther than" not in text and "node" not in text
+    assert not re.search(r"-?\d+\.\d{4,}", text)
+
+
+def test_same_start_and_destination_is_already_there(page):
+    # #35: no "0 ft · 1 min · 1 steps", no Start ride.
+    _set_trip_m(page, (0, -100), (0, -100), end_label="Same spot")
+    page.wait_for_function("() => state.route")
+    assert "You're already there" in page.text_content("#route-summary")
+    assert not page.is_visible("#start-ride")
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route && state.route.distance_m > 1")
+    assert page.is_visible("#start-ride")
+    assert re.search(r"\d+ steps?", page.text_content("#route-summary"))
+    assert "1 steps" not in page.text_content("#route-summary")
+
+
+def _slow_geo(delay_ms, succeed=True):
+    lon, lat = m_to_lonlat(0, 0)
+    return f"""
+(() => {{
+  window.__geoOpts = [];
+  const geo = {{
+    getCurrentPosition(ok, err, opts) {{
+      window.__geoOpts.push(opts);
+      setTimeout(() => {succeed and "ok({ coords: { longitude: " + str(lon) + ", latitude: " + str(lat) + ", accuracy: 20 }, timestamp: Date.now() })" or "err({ code: 3, message: 'timeout' })"}, {delay_ms});
+    }},
+    watchPosition() {{ return 1; }},
+    clearWatch() {{}},
+  }};
+  Object.defineProperty(navigator, 'geolocation', {{ value: geo, configurable: true }});
+}})();
+"""
+
+
+def test_location_gives_up_within_about_12_seconds(open_app):
+    # #34: two attempts of 6 s each (was 10 s + 15 s).
+    page = open_app(init_scripts=[_slow_geo(50, succeed=False)])
+    page.click("#use-location")
+    page.wait_for_selector("#trip-status.error")
+    opts = page.evaluate("() => window.__geoOpts")
+    assert [o["timeout"] for o in opts] == [6000, 6000]
+
+
+def test_picking_a_start_clears_the_location_message_and_wins(open_app):
+    # #34: the timeout message stayed up after a route was set another way,
+    # and a late location answer could overwrite the rider's own pick.
+    page = open_app(init_scripts=[_slow_geo(50, succeed=False)])
+    page.click("#use-location")
+    page.wait_for_selector("#trip-status.error")
+    slon, slat = m_to_lonlat(0, -100)
+    page.evaluate(f"() => setStart({{ kind: 'coords', lat: {slat}, lon: {slon}, label: 'Chosen' }})")
+    assert page.is_hidden("#trip-status")
+
+    page2 = open_app(init_scripts=[_slow_geo(800, succeed=True)])
+    page2.click("#use-location")
+    page2.evaluate(f"() => setStart({{ kind: 'coords', lat: {slat}, lon: {slon}, label: 'Chosen' }})")
+    page2.wait_for_timeout(1200)  # the lookup answers after the pick
+    assert page2.evaluate("() => state.startRef.label") == "Chosen"
+    assert page2.is_hidden("#trip-status")
+    assert page2.is_enabled("#use-location")
+
+
+def test_places_outside_the_city_are_labeled_and_not_pickable(page):
+    # #36
+    page.fill("#search", "Test Bakery")
+    page.wait_for_selector("#search-results .result.outside")
+    outside = page.locator("#search-results .result.outside")
+    assert "Outside service area" in outside.text_content()
+    assert outside.locator("button").evaluate_all("bs => bs.every((b) => b.disabled)")
+    inside = page.locator("#search-results .result:not(.outside)").first
+    assert inside.locator("button").evaluate_all("bs => bs.every((b) => !b.disabled)")
