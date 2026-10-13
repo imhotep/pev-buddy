@@ -37,6 +37,81 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 map.addControl(new maplibregl.NavigationControl(), "top-right");
 
+// Pin colors, shared by the map layer and the legend. Chargers are yellow,
+// apart from the orange of the route and the destination pin (they used to
+// share one amber, and a charger read as a destination).
+const PIN_COLORS = { charger: "#fde047", locker: "#4da3ff", rack: "#b48cff", moto: "#f472b6" };
+
+// Map legend: what each color means. Open on desktop, folded to a "Key"
+// button on phones (remembered); hidden while riding. Lists only the pin
+// kinds the selected vehicle sees.
+const LEGEND_KEY = "pev-legend-open";
+const LEGEND_ITEMS = [
+  { kind: "line", color: "#ffb02e", label: "Your route" },
+  { kind: "dash", color: "#ffb02e", label: "Walk from parking" },
+  { kind: "line", color: "#35d07f", label: "Bike lane or path" },
+  { kind: "line", color: "#5d7086", label: "Street" },
+  { kind: "dot", color: "#35d07f", ring: true, label: "Start" },
+  { kind: "dot", color: "#ffb02e", ring: true, label: "Destination" },
+  { kind: "dot", color: PIN_COLORS.charger, pin: "charger", label: "EV charger" },
+  { kind: "dot", color: PIN_COLORS.locker, pin: "locker", label: "BikeLink locker" },
+  { kind: "dot", color: PIN_COLORS.rack, pin: "rack", label: "Bike rack" },
+  { kind: "dot", color: PIN_COLORS.moto, pin: "moto", label: "Motorcycle parking" },
+  { kind: "count", label: "Several pins: tap to zoom in" },
+];
+class LegendControl {
+  onAdd() {
+    const el = document.createElement("div");
+    el.className = "maplibregl-ctrl pev-legend";
+    el.id = "map-legend";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "pev-legend-toggle";
+    toggle.setAttribute("aria-controls", "map-legend-list");
+    toggle.innerHTML = `<span aria-hidden="true">◐</span> Key`;
+    const list = document.createElement("ul");
+    list.id = "map-legend-list";
+    list.setAttribute("aria-label", "Map key");
+    el.append(toggle, list);
+    const saved = storageGet(LEGEND_KEY);
+    this.setOpen(el, saved === null ? !SMALL_SCREEN.matches : saved === "1");
+    toggle.addEventListener("click", () => {
+      const open = !el.classList.contains("open");
+      this.setOpen(el, open);
+      storageSet(LEGEND_KEY, open ? "1" : "0");
+    });
+    this.el = el;
+    return el;
+  }
+  setOpen(el, open) {
+    el.classList.toggle("open", open);
+    el.querySelector(".pev-legend-toggle").setAttribute("aria-expanded", String(open));
+  }
+  onRemove() {
+    this.el.remove();
+  }
+}
+const legendControl = new LegendControl();
+map.addControl(legendControl, "top-left");
+
+function syncLegend() {
+  const list = document.getElementById("map-legend-list");
+  if (!list) return;
+  list.innerHTML = "";
+  for (const it of LEGEND_ITEMS) {
+    if (it.pin && !pinKindShown(it.pin)) continue;
+    const li = document.createElement("li");
+    if (it.pin) li.dataset.pin = it.pin;
+    const sw = document.createElement("span");
+    sw.className = `swatch ${it.kind}${it.ring ? " ring" : ""}`;
+    sw.setAttribute("aria-hidden", "true");
+    if (it.color) sw.style.setProperty("--c", it.color);
+    if (it.kind === "count") sw.textContent = "12";
+    li.append(sw, document.createTextNode(it.label));
+    list.appendChild(li);
+  }
+}
+
 // Live location dot (with heading cone) — mobile only, where it matters for
 // actually riding the route.
 let geolocateControl = null;
@@ -281,10 +356,10 @@ map.on("load", async () => {
       // charger amber, locker blue, rack violet
       "circle-color": [
         "match", ["get", "kind"],
-        "charger", "#ffb02e",
-        "locker", "#4da3ff",
-        "rack", "#b48cff",
-        "moto", "#f472b6",
+        "charger", PIN_COLORS.charger,
+        "locker", PIN_COLORS.locker,
+        "rack", PIN_COLORS.rack,
+        "moto", PIN_COLORS.moto,
         "#ffb02e",
       ],
       // Racks number in the thousands — keep their pins smaller.
@@ -616,6 +691,16 @@ const PARK_KINDS_BY_VEHICLE = { moped: ["charger", "moto"], emoto: ["charger", "
 function parkKindFits(kind) {
   return (PARK_KINDS_BY_VEHICLE[state.vehicle] || PARK_KINDS_DEFAULT).includes(kind);
 }
+
+// The map's pins: every vehicle sees chargers and motorcycle parking (the
+// spots are useful to know about whatever you ride); bike racks and lockers
+// stay off a moped's map, where they were clutter.
+const PIN_KINDS_DEFAULT = ["charger", "locker", "rack", "moto"];
+const PIN_KINDS_BY_VEHICLE = { moped: ["charger", "moto"], emoto: ["charger", "moto"] };
+function pinKindShown(kind) {
+  return (PIN_KINDS_BY_VEHICLE[state.vehicle] || PIN_KINDS_DEFAULT).includes(kind);
+}
+syncLegend();
 
 function indexPois(features) {
   for (const f of features) {
@@ -1255,11 +1340,12 @@ function syncNavUI() {
 // pins that never show).
 let allPois = [];
 function poisForVehicle() {
-  return { type: "FeatureCollection", features: allPois.filter((f) => parkKindFits(f.properties.kind)) };
+  return { type: "FeatureCollection", features: allPois.filter((f) => pinKindShown(f.properties.kind)) };
 }
 function syncPoiKinds() {
   const src = map.getSource("pev-pois");
   if (src) src.setData(poisForVehicle());
+  syncLegend();
 }
 
 // Phone bottom sheet: with a route up it collapses to the route summary and
@@ -1548,10 +1634,17 @@ const ride = {
 let voiceMuted = storageGet(VOICE_KEY) === "1";
 
 const riderMarker = new maplibregl.Marker({ element: makeRiderPuck(), rotationAlignment: "map" });
+// The rider: a red navigation arrow pointing the way you're heading, in the
+// style of Tesla's in-car map (a solid chevron with a notched tail, white
+// edge and a soft shadow). The marker rotates with the heading.
 function makeRiderPuck() {
   const el = document.createElement("div");
   el.className = "rider-puck";
   el.setAttribute("aria-hidden", "true");
+  el.innerHTML =
+    '<svg viewBox="0 0 40 40" width="40" height="40">' +
+    '<path d="M20 4 L33 34 L20 27 L7 34 Z" fill="#e82127" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>' +
+    "</svg>";
   return el;
 }
 

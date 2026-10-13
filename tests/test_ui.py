@@ -191,9 +191,13 @@ def test_poi_layers_clustered_with_distinct_kind_colors():
     # count bubbles when zoomed out, colored pins when zoomed in.
     assert '"pev-pois"' in js and "cluster: true" in js
     assert "point_count_abbreviated" in js, "clusters must show a count label"
-    colors = dict(re.findall(r'"(charger|locker|rack)",\s*"(#[0-9a-f]+)"', js))
-    assert set(colors) == {"charger", "locker", "rack"}, "all three POI kinds must be styled"
-    assert len(set(colors.values())) == 3, "each POI kind needs its own pin color"
+    pins = re.search(r"const PIN_COLORS = \{([^}]*)\}", js).group(1)
+    colors = dict(re.findall(r'(charger|locker|rack|moto):\s*"(#[0-9a-f]+)"', pins))
+    assert set(colors) == {"charger", "locker", "rack", "moto"}, "all four POI kinds must be styled"
+    assert len(set(colors.values())) == 4, "each POI kind needs its own pin color"
+    assert "#ffb02e" not in colors.values(), "no pin may share the route / destination orange"
+    for kind in colors:
+        assert f'"{kind}", PIN_COLORS.{kind}' in js, f"the pin layer must color {kind} pins"
     # Clicking a locker must be able to open its bubble.
     assert "showBikeLinkPopup" in js
 

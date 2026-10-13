@@ -32,8 +32,9 @@ hands-free: a big next-turn banner, voice prompts, and automatic rerouting.
   there, with walking directions to your real destination drawn on the map
   (sidewalks, paths and stairs, either way along one-way streets) and
   announced on arrival.
-- **Rides with you.** Ride mode snaps your GPS to the route, shows the next
-  turn with a live countdown, speaks it ("In 500 feet, turn right onto …"),
+- **Rides with you.** Ride mode shows you as a red arrow pointing the way
+  you're heading (like a Tesla's map), snaps your GPS to the route, shows the
+  next turn with a live countdown, speaks it ("In 500 feet, turn right onto …"),
   reroutes when you leave the route, turns the map to face your direction of
   travel, and keeps the screen on.
 - **Feels like a phone nav app.** On a phone the start is your location,
@@ -42,7 +43,8 @@ hands-free: a big next-turn banner, voice prompts, and automatic rerouting.
   view.
 - **Shows where to charge and park.** SF's EV chargers, BikeLink secure
   lockers, ~6k SFMTA bike racks and ~330 motorcycle parking sites, on one
-  clustered map layer that shows the kinds that fit your vehicle.
+  clustered map layer (mopeds don't see racks and lockers), with a map
+  **Key** that explains every color.
 
 ## Use it on your phone
 
@@ -298,10 +300,15 @@ tap from the route.
    release, with its license) and loaded with `integrity` hashes, so no
    third-party script or stylesheet runs; the only outside requests are the
    CARTO basemap's style, tiles, fonts and sprites.
-   - **Map:** the rideable network, plus one clustered layer of the parking
-     kinds that fit the selected vehicle (count bubbles zoomed out, colored
-     pins zoomed in: amber chargers, blue lockers, violet racks, pink
-     motorcycle parking).
+   - **Map:** the rideable network, plus one clustered layer of parking pins
+     (count bubbles zoomed out, colored pins zoomed in: yellow chargers, blue
+     BikeLink lockers, violet bike racks, pink motorcycle parking). Every
+     vehicle sees chargers and motorcycle parking; mopeds don't see racks and
+     lockers. Chargers are yellow so they never read as the orange route or
+     destination pin. A **Key** in the map's top-left corner explains each
+     color, listing only the pins the selected vehicle sees; it is open on
+     desktop, folded to a button on phones (remembered), and hidden while
+     riding.
    - **Trip:** unified search for start or destination (case- and
      accent-insensitive, from two characters, keyboard-navigable: the arrow
      keys move through results, Enter picks one for the highlighted trip row
@@ -315,7 +322,8 @@ tap from the route.
      from `/api/walk` and drawn dashed (a straight line if that fails).
    - **Steps:** a turn-by-turn panel where tapping a step highlights it on the
      map, during a ride too.
-   - **Ride mode:** GPS fixes snapped to the route, a next-maneuver banner and
+   - **Ride mode:** the rider as a red navigation arrow turned to the heading,
+     GPS fixes snapped to the route, a next-maneuver banner and
      voice prompts that advance on their own, rerouting after three fixes or
      five seconds off the route, heading-up map (GPS course when moving,
      compass otherwise), screen wake lock. The progress logic is plain
