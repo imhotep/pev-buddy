@@ -124,6 +124,7 @@ h1 {
 #search-results .result:last-child { border-bottom: none; }
 #search-results .result:hover { background: #24344a; }
 #search-results .result small { display: block; color: var(--muted); margin-top: 2px; }
+#search-results .result.outside > span { color: var(--muted); }
 
 #trip { padding: 4px 16px 12px; border-bottom: 1px solid var(--border); }
 .trip-row {

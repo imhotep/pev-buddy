@@ -13,20 +13,36 @@ from .graph import RoadGraph
 
 
 class RouteError(Exception):
-    """No usable route between the two points."""
+    """No usable route between the two points.
+
+    `str(e)` is the technical account, for logs. `code` is a stable id a
+    client can branch on, and `user_message` is what to show a rider: plain
+    words, no coordinates or internals.
+    """
+
+    def __init__(self, message: str, code: str = "no_route", user_message: str | None = None):
+        super().__init__(message)
+        self.code = code
+        self.user_message = user_message or "No route found between these points."
 
 
 class SnapError(RouteError):
     """A point could not be snapped to the network within the search radius."""
 
-    def __init__(self, point: tuple[float, float], nearest_node: int, nearest_m: float, radius_m: float):
+    def __init__(
+        self, point: tuple[float, float], nearest_node: int, nearest_m: float, radius_m: float, which: str = "point"
+    ):
+        place = {"start": "The start", "end": "The destination"}.get(which, "That spot")
         super().__init__(
-            f"point {point} is farther than {radius_m:.0f} m from the PEV network "
-            f"(nearest node is {nearest_m:.0f} m away)"
+            f"{which} {point} is farther than {radius_m:.0f} m from the PEV network "
+            f"(nearest node is {nearest_m:.0f} m away)",
+            code="off_network",
+            user_message=f"{place} isn't near a street PEV Buddy can route on. Pick a point closer to a road.",
         )
         self.point = point
         self.nearest_node = nearest_node
         self.nearest_m = nearest_m
+        self.which = which
 
 
 @dataclass
@@ -66,7 +82,7 @@ def snap_to_node(
     i = int(np.argmin(dists))
     d = float(dists[i])
     if d > radius:
-        raise SnapError((lon, lat), i, d, radius)
+        raise SnapError((lon, lat), i, d, radius, which="start" if prefer == "start" else "end")
     usable = graph.out_ok[vehicle] if prefer == "start" else graph.in_ok[vehicle]
     cand = np.where(np.asarray(usable, dtype=bool) & (dists <= radius))[0]
     if not cand.size:
@@ -132,11 +148,11 @@ def find_walk(
     radius = snap_radius_m if snap_radius_m is not None else config.SNAP_RADIUS_M
     coords = np.asarray(graph.node_coords, dtype=float)
     ends = []
-    for lon, lat in ((start_lon, start_lat), (end_lon, end_lat)):
+    for which, lon, lat in (("start", start_lon, start_lat), ("end", end_lon, end_lat)):
         d = geo.fast_distances(lon, lat, coords)
         i = int(np.argmin(d))
         if float(d[i]) > radius:
-            raise SnapError((lon, lat), i, float(d[i]), radius)
+            raise SnapError((lon, lat), i, float(d[i]), radius, which=which)
         ends.append(i)
     start, end = ends
     if start == end:
@@ -167,7 +183,11 @@ def find_walk(
                 parent[nxt] = (n, e, forward)
                 heapq.heappush(heap, (ng + h(nxt), ng, nxt))
     if end not in best:
-        raise RouteError("no walking route found between the given points")
+        raise RouteError(
+            "no walking route found between the given points",
+            code="no_walk",
+            user_message="No walking route found between these points.",
+        )
 
     legs = []
     n = end
@@ -275,10 +295,8 @@ def find_route(
             f"unknown vehicle type {vehicle!r}; expected one of: {', '.join(config.VEHICLE_ORDER)}"
         )
     if not veh.routable:
-        raise RouteError(
-            f"{veh.label} is not street-legal in California — off-highway use only. "
-            "Choose a street-legal vehicle type."
-        )
+        msg = f"{veh.label} is not street-legal in California — off-highway use only. Choose a street-legal vehicle type."
+        raise RouteError(msg, code="vehicle_not_street_legal", user_message=msg)
 
     start, start_d = snap_to_node(graph, start_lon, start_lat, vehicle, snap_radius_m, prefer="start")
     end, end_d = snap_to_node(graph, end_lon, end_lat, vehicle, snap_radius_m, prefer="end")
@@ -288,7 +306,10 @@ def find_route(
         if c0 != c1 and not _scc_reachable(graph.scc_reach, c0, c1):
             raise RouteError(
                 f"no {veh.label.lower()} route: start and destination are not connected on "
-                "roads this vehicle type may use"
+                "roads this vehicle type may use",
+                code="not_connected",
+                user_message=f"No {veh.label.lower()} route: these points aren't connected by streets "
+                f"a {veh.label.lower()} may use.",
             )
 
     if start == end:
@@ -355,7 +376,10 @@ def find_route(
 
     raise RouteError(
         f"no {veh.label.lower()} route found between the given points — the destination is "
-        "not reachable within this vehicle type's road-access rules"
+        "not reachable within this vehicle type's road-access rules",
+        code="no_route",
+        user_message=f"No {veh.label.lower()} route found: the destination can't be reached on "
+        f"streets a {veh.label.lower()} may use.",
     )
 
 

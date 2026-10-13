@@ -174,7 +174,8 @@ def test_route_unknown_vehicle_is_400(client):
         json={"start": {"query": "Main St"}, "end": {"lon": -122.4, "lat": 37.78}, "vehicle": "Q"},
     )
     assert r.status_code == 400
-    assert "unknown vehicle type" in r.json()["detail"]
+    assert r.json()["detail"]["code"] == "unknown_vehicle"
+    assert "Unknown vehicle type" in r.json()["detail"]["message"]
 
 
 def test_route_emoto_is_blocked(client):
@@ -183,7 +184,8 @@ def test_route_emoto_is_blocked(client):
         json={"start": {"query": "Main St"}, "end": {"lon": -122.4, "lat": 37.78}, "vehicle": "emoto"},
     )
     assert r.status_code == 400
-    assert "not street-legal" in r.json()["detail"]
+    assert r.json()["detail"]["code"] == "vehicle_not_street_legal"
+    assert "not street-legal" in r.json()["detail"]["message"]
 
 
 def test_route_sidewalk_warning(client):

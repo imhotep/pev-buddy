@@ -87,6 +87,9 @@ class SearchItem(BaseModel):
     lat: float
     address: str | None = None
     station_id: str | None = None
+    # False for places in the data but outside the city (across the Bay):
+    # shown, labeled, and not offered as a start or destination.
+    in_service_area: bool = True
 
 
 class RouteStepOut(BaseModel):

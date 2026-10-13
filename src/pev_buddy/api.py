@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -94,6 +95,24 @@ def create_app(data_dir: str | None = None) -> FastAPI:
     # roads.geojson is ~39 MB raw — gzip makes the initial map load ~5x lighter
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+    log = logging.getLogger("pev_buddy.api")
+
+    def api_error(status: int, code: str, message: str) -> HTTPException:
+        """An error a rider may see: a stable `code` for clients and a plain
+        `message`, never internals (those go to the log)."""
+        return HTTPException(status, {"code": code, "message": message})
+
+    def route_error(e: RouteError) -> HTTPException:
+        log.info("route error (%s): %s", e.code, e)
+        return api_error(400, e.code, e.user_message)
+
+    def check_service_area(lon: float, lat: float, kind: str) -> None:
+        if not config.in_service_area(lon, lat):
+            place = "start" if kind == "start" else "destination"
+            raise api_error(
+                400, "outside_area", f"That {place} is outside San Francisco: PEV Buddy only routes within the city."
+            )
+
     def resolve_point(ref: PointRef, kind: str) -> tuple[float, float, str]:
         if ref.station_id:
             st = next((s for s in state.stations.all() if s["id"] == ref.station_id), None)
@@ -102,17 +121,17 @@ def create_app(data_dir: str | None = None) -> FastAPI:
                 if st is not None:
                     return st["lon"], st["lat"], st["name"] or "BikeLink locker"
             if st is None:
-                raise HTTPException(404, f"unknown station {ref.station_id}")
+                raise api_error(404, "unknown_station", "That charger or locker is no longer listed.")
             return st["lon"], st["lat"], st["name"] or "charging station"
         if ref.query:
             results = state.geocoder.search(ref.query, limit=1)
             if not results:
-                raise HTTPException(400, f"could not find address {ref.query!r}")
+                raise api_error(400, "address_not_found", f"Couldn't find the address \"{ref.query}\".")
             r = results[0]
             return r["lon"], r["lat"], r["text"]
         if ref.lat is not None and ref.lon is not None:
             return ref.lon, ref.lat, ref.label or "map location"
-        raise HTTPException(400, f"{kind} must specify lat/lon, query, or station_id")
+        raise api_error(400, "bad_request", f"The {kind} needs a location (lat/lon, an address, or a station).")
 
     @app.get("/api/health")
     def health() -> dict:
@@ -278,7 +297,10 @@ def create_app(data_dir: str | None = None) -> FastAPI:
                     }
                 )
 
-        items.sort(key=lambda x: (-x["score"], x["text"].casefold()))
+        # Places in the city first: one across the Bay can't be routed to.
+        for it in items:
+            it["in_service_area"] = config.in_service_area(it["lon"], it["lat"])
+        items.sort(key=lambda x: (not x["in_service_area"], -x["score"], x["text"].casefold()))
         out: list[dict] = []
         seen: set = set()
         for it in items:
@@ -295,6 +317,7 @@ def create_app(data_dir: str | None = None) -> FastAPI:
                     "lat": it["lat"],
                     "address": it["address"],
                     "station_id": it["station_id"],
+                    "in_service_area": it["in_service_area"],
                 }
             )
             if len(out) >= limit:
@@ -305,7 +328,7 @@ def create_app(data_dir: str | None = None) -> FastAPI:
     def walk(req: WalkRequest) -> dict:
         """Walking directions, e.g. from a parking spot to the real destination."""
         if state.graph is None:
-            raise HTTPException(503, "network not loaded yet")
+            raise api_error(503, "loading", "The map is still loading. Try again in a moment.")
         try:
             slon, slat, _ = resolve_point(req.start, "start")
             elon, elat, _ = resolve_point(req.end, "end")
@@ -313,7 +336,7 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         except HTTPException:
             raise
         except RouteError as e:
-            raise HTTPException(400, str(e))
+            raise route_error(e)
         return {
             "path": result.path,
             "distance_m": round(result.distance_m, 1),
@@ -323,16 +346,19 @@ def create_app(data_dir: str | None = None) -> FastAPI:
     @app.post("/api/route", response_model=RouteOut)
     def route(req: RouteRequest) -> dict:
         if state.graph is None:
-            raise HTTPException(503, "network not loaded yet")
+            raise api_error(503, "loading", "The map is still loading. Try again in a moment.")
         vehicle = req.vehicle or config.DEFAULT_VEHICLE
         veh = config.VEHICLE_TYPES.get(vehicle)
         if veh is None:
-            raise HTTPException(
-                400, f"unknown vehicle type {req.vehicle!r}; expected one of: {', '.join(config.VEHICLE_ORDER)}"
+            raise api_error(
+                400,
+                "unknown_vehicle",
+                f"Unknown vehicle type {req.vehicle!r}; expected one of: {', '.join(config.VEHICLE_ORDER)}.",
             )
         if not veh.routable:
-            raise HTTPException(
+            raise api_error(
                 400,
+                "vehicle_not_street_legal",
                 f"{veh.label} is not street-legal in California — off-highway use only. "
                 "Pick a street-legal vehicle type.",
             )
@@ -340,11 +366,13 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         try:
             slon, slat, slabel = resolve_point(req.start, "start")
             elon, elat, elabel = resolve_point(req.end, "end")
+            check_service_area(slon, slat, "start")
+            check_service_area(elon, elat, "end")
             result = find_route(graph, slon, slat, elon, elat, vehicle=vehicle)
         except HTTPException:
             raise
         except RouteError as e:
-            raise HTTPException(400, str(e))
+            raise route_error(e)
         warnings = []
         if result.start_snap_m > 50:
             warnings.append(f"start snapped {format_distance(result.start_snap_m)} to the nearest junction")

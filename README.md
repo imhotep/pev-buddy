@@ -71,8 +71,10 @@ compass heading-up while riding) turns on for any touch screen
    site-settings icon left of the address → **Permissions → Location → Allow**.
 
 **If "Use my location" can't find you**: the app first asks for a precise
-(GPS) position and, if the device can't get one in time, for an approximate
-one (from Wi-Fi, or a recent fix). If both fail it says what to check:
+(GPS) position and, if the device can't get one within 6 seconds, for an
+approximate one (from Wi-Fi, or a recent fix), so it gives up after about
+12 seconds at most. Setting the start another way meanwhile wins and clears
+the message. If both fail it says what to check:
 Location Services for your browser, and on a Mac, that Wi-Fi is on (a Mac
 has no GPS and locates itself by nearby networks).
 
@@ -263,7 +265,27 @@ tap from the route.
    ranked), `/api/reverse` (nearest-address label for a map-picked point),
    `/api/walk` (walking directions), `/api/geocode`, `/api/stations[/nearest]`
    and `/api/bikelink[/nearest]`. Search ignores case and accents, so "Café
-   Encore" finds "Cafe Encore" (and the other way round).
+   Encore" finds "Cafe Encore" (and the other way round). Places across the
+   Bay are in the data (the extract's box is wider than the city): search
+   marks them `in_service_area: false` and ranks them last, the UI labels them
+   "Outside service area" and won't pick them, and a route to or from outside
+   the city gets a clear `outside_area` error.
+
+   **Errors** from `/api/route` and `/api/walk` are `{"detail": {"code",
+   "message"}}`: a stable code (`off_network`, `outside_area`,
+   `not_connected`, `no_route`, `vehicle_not_street_legal`, …) and a message
+   a rider can read ("The destination isn't near a street PEV Buddy can
+   route on. Pick a point closer to a road."). The technical account
+   (coordinates, distances to the nearest junction) goes to the server log
+   only.
+
+   **Known-bad places.** A few Overture place records sit far from where the
+   place is (the "Ferry Building, Embarcadero" historic site in Bernal
+   Heights, Oakland's Coliseum and Oracle Arena in SoMa, SFO inside the
+   city). `src/pev_buddy/place_fixes.py` lists them, each checked by hand
+   with the reason, and search never offers them. A general rule was tried
+   and rejected: a place having an address doesn't make its coordinates
+   right, so it dropped correct landmarks.
 
 4. **UI** is a dependency-free vanilla-JS + MapLibre GL single page,
    installable as a PWA (`web/`: `app.js`, `debug.js`, `style.css`, `sw.js`).
@@ -476,7 +498,10 @@ measurement-driven verification are mine.
   there's no lane guidance.
 - **Within the city only.** The road network stops at the SF line; pins just
   past it (Daly City, South SF) are shown but never offered as a place to
-  park.
+  park, and searched places outside the city are labeled and can't be
+  picked.
+- **Place data is fixed by hand where it's known wrong.** The known-bad list
+  covers what's been found; other misplaced Overture records may remain.
 
 ## Data & licenses
 
