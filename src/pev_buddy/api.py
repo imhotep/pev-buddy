@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import orjson
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -219,13 +219,15 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         }
 
     @app.get("/api/search", response_model=list[SearchItem])
-    def search(q: str, limit: int = 8) -> list[dict]:
+    def search(q: str = Query(..., max_length=100), limit: int = 8) -> list[dict]:
         """Unified start/destination search: addresses, places/POIs, stations, BikeLink lockers."""
         if state.geocoder is None and state.pois is None and state.stations is None and state.bikelink is None:
             raise HTTPException(503, "data not loaded yet")
         limit = min(max(limit, 1), 15)
         ql = q.strip()
-        if not ql:
+        # One character matches thousands of names and helps nobody; the
+        # app only searches from two.
+        if len(ql) < 2:
             return []
         ql_l = fold(ql)
 
@@ -322,6 +324,15 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             )
             if len(out) >= limit:
                 break
+        # A place with no address still needs telling apart from same-named
+        # ones: say which street it's near.
+        if state.geocoder is not None:
+            for it in out:
+                if it["address"] or it["kind"] == "address":
+                    continue
+                hit = state.geocoder.reverse(it["lon"], it["lat"])
+                if hit is not None:
+                    it["address"] = f"Near {display_address(hit['number'], hit['street'])}"
         return out
 
     @app.post("/api/walk", response_model=WalkOut)

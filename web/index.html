@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <!-- style.css comes after maplibre-gl.css so our popup overrides win at equal specificity -->
-  <link rel="stylesheet" href="style.css?v=55" />
+  <link rel="stylesheet" href="style.css?v=56" />
 </head>
 <body>
   <aside id="sidebar">
@@ -35,8 +35,9 @@
     </header>
 
     <div class="search">
-      <input id="search" type="text" placeholder="Search SF — address, business, or place…" autocomplete="off" aria-label="Search San Francisco addresses, businesses, or places" aria-expanded="false" aria-controls="search-results" />
-      <div id="search-results" class="hidden"></div>
+      <input id="search" type="text" role="combobox" aria-autocomplete="list" placeholder="Search SF — address, business, or place…" autocomplete="off" aria-label="Search San Francisco addresses, businesses, or places" aria-expanded="false" aria-controls="search-results" aria-describedby="search-help" />
+      <div id="search-results" class="hidden" role="listbox" aria-label="Search results"></div>
+      <div id="search-help" class="visually-hidden">Use the arrow keys to move through results. Enter picks the highlighted one for the highlighted trip row; Shift+Enter for the other row.</div>
       <div id="search-status" class="visually-hidden" aria-live="polite"></div>
     </div>
 
@@ -83,7 +84,7 @@
       Bike racks ©
       <a href="https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5" target="_blank" rel="noopener">SFMTA / DataSF</a> ·
       Elevation: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">Terrain Tiles</a> (USGS 3DEP) ·
-      Routes are e-bike guidance, not a legal navigation device.
+      Routes are guidance, not a legal navigation device.
     </footer>
   </aside>
   <main id="map"></main>
@@ -134,8 +135,8 @@
     </div>
     <ol id="steps"></ol>
   </div>
-  <script src="app.js?v=55"></script>
+  <script src="app.js?v=56"></script>
   <!-- Console developer tools (pev.help()); idle until called. -->
-  <script src="debug.js?v=55"></script>
+  <script src="debug.js?v=56"></script>
 </body>
 </html>

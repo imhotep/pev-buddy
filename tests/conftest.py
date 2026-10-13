@@ -221,6 +221,8 @@ def write_synth_bundle(data):
                 ["p-2", "Side Street Deli", "casual_eatery", "10 Side St", m_to_lonlat(0, -100)[0], m_to_lonlat(0, -100)[1]],
                 # Across the Bay: in the data, outside the routable city.
                 ["p-3", "Test Bakery Oakland", "restaurant", None, -122.30, 37.80],
+                # No address of its own: search says which street it's near.
+                ["p-5", "Corner Kiosk", "kiosk", None, m_to_lonlat(0, -95)[0], m_to_lonlat(0, -95)[1]],
                 # A known-misplaced Overture record (place_fixes): never offered.
                 ["p-4", "Ferry Building, Embarcadero", "historic_site", None, m_to_lonlat(100, 0)[0], m_to_lonlat(100, 0)[1]],
             ]
