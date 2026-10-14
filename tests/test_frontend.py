@@ -1057,15 +1057,29 @@ def _trip_cleared(page):
 
 def test_arrival_clears_the_trip_by_itself_on_the_destination(ride_page):
     page = ride_page
-    page.evaluate("() => { arriveClearMs = 400; }")
+    # Hold the arrival's timer instead of racing it (a short real timer could
+    # fire before a slow CI runner checked the arrival screen).
+    page.evaluate(
+        """() => {
+          const real = window.setTimeout;
+          window.setTimeout = (fn, ms, ...args) => {
+            if (fn !== finishTrip) return real(fn, ms, ...args);
+            window.__arrivalClear = { fn, ms };
+            return 0;
+          };
+        }"""
+    )
     route_via_ui(page)
     page.click("#start-ride")
     fix_at(page, 200, -90)
     assert banner(page)["state"] == "arrived"
-    # The arrival shows first, with Done as the way out...
+    # The arrival shows first, with Done as the way out, and the clear is
+    # scheduled RIDE.ARRIVE_CLEAR_MS (10 s) on...
     assert page.text_content("#end-ride") == "Done"
     assert page.evaluate("() => document.body.classList.contains('riding')")
-    # ...then the trip clears by itself, the map left north-up on the destination.
+    assert page.evaluate("() => window.__arrivalClear && window.__arrivalClear.ms") == 10000
+    # ...when it fires, the trip clears, the map left north-up on the destination.
+    page.evaluate("() => window.__arrivalClear.fn()")
     page.wait_for_function("() => !document.body.classList.contains('riding')")
     assert _trip_cleared(page)
     dlon, dlat = m_to_lonlat(200, -100)
