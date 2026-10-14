@@ -90,8 +90,10 @@
 #pev-debug-hud .pev-dbg-out { color: #cde; background: #0b1610; border-radius: 6px; padding: 6px; max-height: 30vh; }`;
 
   let output = null; // the panel's output box
+  let shown = null; // { title, route }: what the output box shows, and for which route
   function show(title, value) {
     const text = typeof value === "string" ? value : JSON.stringify(value, null, 1);
+    shown = { title, route: state.route };
     if (output) {
       output.textContent = `${title}\n${text}`;
       output.hidden = false;
@@ -343,6 +345,8 @@
     listen(window, "error", (ev) => (lastWarn = "ERR " + ev.message));
 
     const paint = () => {
+      // A route readout follows the route (a vehicle change, a reroute).
+      if (shown && shown.title === "route" && shown.route !== state.route) show("route", route(true));
       const vv = window.visualViewport;
       let active = "?";
       try {
@@ -374,6 +378,7 @@
     hud.el.remove();
     hud = null;
     output = null;
+    shown = null;
     panelUndo.forEach((f) => f());
     panelUndo = [];
   }
@@ -496,8 +501,14 @@
     hud(on) {
       const want = on === undefined ? !hud : !!on;
       store.set(want);
-      if (want) startHud();
-      else stopHud();
+      if (want) {
+        startHud();
+        // Asking for the panel shows all of it, minimized or not.
+        if (hud.el.classList.contains("min")) {
+          hud.el.classList.remove("min");
+          placePanel(hud.el);
+        }
+      } else stopHud();
       return want ? "HUD on" : "HUD off";
     },
     route,

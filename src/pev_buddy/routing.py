@@ -45,6 +45,9 @@ class SnapError(RouteError):
         self.which = which
 
 
+# Off-street bicycle facilities (OSM-style classes in the Overture extract).
+BIKE_PATH_CLASSES = frozenset({"cycleway", "path", "track"})
+
 @dataclass
 class RouteResult:
     edge_idxs: list[int]
@@ -60,6 +63,11 @@ class RouteResult:
     segment_stats: dict = field(default_factory=dict)
     climb_m: float = 0.0  # total ascent along the route (m)
     descent_m: float = 0.0
+    # Off-street bike paths (cycleway / path / track) on the route, in order:
+    # [{"name": str | None, "near": str | None, "distance_m": float}], `near`
+    # naming the street an unnamed path leaves from. A street merely signed as
+    # a bike route counts as "bike_lane" in segment_stats but not here.
+    bike_paths: list[dict] = field(default_factory=list)
 
 
 def snap_to_node(
@@ -409,6 +417,7 @@ def _reconstruct(
     climb_total = 0.0
     descent_total = 0.0
     stats: dict[str, dict] = {}
+    bike_paths: list[dict] = []
     for i, e in enumerate(edges):
         geom = graph.edge_geometry(e)
         for c in geom if i == 0 else geom[1:]:
@@ -426,6 +435,22 @@ def _reconstruct(
         st["distance_m"] += length
         if posted is not None:
             st["max_speed_mph"] = max(st["max_speed_mph"] or 0, posted)
+        seg = graph.segments[_s]
+        if seg["class"] in BIKE_PATH_CLASSES:
+            if bike_paths and bike_paths[-1]["name"] == seg["name"] and bike_paths[-1]["last"] == i - 1:
+                bike_paths[-1]["distance_m"] += length
+                bike_paths[-1]["last"] = i
+            else:
+                # An unnamed path is placed by the street it leaves from.
+                near = None
+                for prev in reversed(edges[:i]):
+                    prev_seg = graph.segments[graph.edges[prev][2]]
+                    if prev_seg["name"] and prev_seg["class"] not in BIKE_PATH_CLASSES:
+                        near = prev_seg["name"]
+                        break
+                bike_paths.append({"name": seg["name"], "near": near, "distance_m": length, "last": i})
+    for p in bike_paths:
+        del p["last"]
     return RouteResult(
         edge_idxs=edges,
         path=path,
@@ -438,4 +463,5 @@ def _reconstruct(
         segment_stats=stats,
         climb_m=climb_total,
         descent_m=descent_total,
+        bike_paths=bike_paths,
     )

@@ -166,3 +166,123 @@ def test_every_reviewed_bad_place_says_why():
     assert len(names) == len(set(names))
     for name, _cat, why in BAD_PLACES:
         assert len(why) > 20, name
+
+
+# --- v60 QA pass: #49, #50, #52, #54.6 -------------------------------------
+
+
+@pytest.fixture()
+def padded_geocoder(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from pev_buddy.geocode import Geocoder
+
+    # Overture files some 3rd St addresses under "03RD ST" and some under "3RD ST".
+    table = pa.table(
+        {
+            "street": ["03RD ST", "3RD ST", "01ST ST", "3RD AVE"],
+            "number": ["360", "500", "100", "360"],
+            "unit": [None, None, None, None],
+            "postcode": ["94107", "94107", "94105", "94118"],
+            "lon": [-122.39824, -122.3961, -122.39759, -122.4618],
+            "lat": [37.78304, 37.7812, 37.78949, 37.7832],
+        }
+    )
+    p = tmp_path / "addresses.parquet"
+    pq.write_table(table, p)
+    return Geocoder(p)
+
+
+def test_zero_padded_numbered_streets_are_found_and_read_normally(padded_geocoder):
+    g = padded_geocoder
+    assert [r["text"] for r in g.search("360 3rd St")] == ["360 3RD ST"]
+    assert [r["text"] for r in g.search("100 1st St")] == ["100 1ST ST"]
+    # Both spellings are one street.
+    assert {r["number"] for r in g.search("3rd St")} == {"360", "500"}
+    # An ordinal is a street name, not a house number.
+    assert "3RD AVE" in {r["street"] for r in g.search("3rd")}
+    hit = g.reverse(-122.39824, 37.78304)
+    assert hit["street"] == "3RD ST"
+
+
+def test_map_tap_label_has_no_zero_padding(padded_geocoder):
+    from pev_buddy.geocode import display_address
+
+    hit = padded_geocoder.reverse(-122.39824, 37.78304)
+    assert display_address(hit["number"], hit["street"]) == "360 3rd St"
+
+
+def _moped_route(features, start, end):
+    from conftest import make_road_graph
+    from pev_buddy.routing import find_route
+
+    g = make_road_graph(features)
+    (slon, slat), (elon, elat) = m_to_lonlat(*start), m_to_lonlat(*end)
+    return find_route(g, slon, slat, elon, elat, vehicle="moped")
+
+
+def test_moped_bike_path_is_named_and_measured():
+    from conftest import road_features
+
+    # Without Side Street's east block, the Cycle Path is the only way to F.
+    feats = [f for f in road_features() if f["id"] != "s-side2"]
+    r = _moped_route(feats, (200, 0), (200, -100))
+    assert r.bike_paths == [{"name": "Cycle Path", "near": None, "distance_m": pytest.approx(100, abs=1)}]
+
+
+def test_an_unnamed_bike_path_is_placed_by_the_street_it_leaves():
+    from conftest import road_features
+
+    feats = [f for f in road_features() if f["id"] != "s-side2"]
+    for f in feats:
+        if f["id"] == "s-vert2":
+            f["properties"]["name"] = None
+    r = _moped_route(feats, (100, 0), (200, -100))
+    assert [(p["name"], p["near"]) for p in r.bike_paths] == [(None, "Main Street")]
+
+
+def test_a_street_signed_as_a_bike_route_is_not_a_bike_path():
+    from conftest import road_features
+
+    feats = road_features()
+    for f in feats:
+        if f["id"] == "s-main2":
+            f["properties"]["bike_desig"] = 0xFFFF
+    r = _moped_route(feats, (100, 0), (200, 0))
+    assert r.bike_paths == []
+
+
+def test_moped_warning_says_where_the_bike_path_is(synth_data_dir):
+    import orjson
+
+    roads = orjson.loads((synth_data_dir / "roads.geojson").read_bytes())
+    roads["features"] = [f for f in roads["features"] if f["id"] != "s-side2"]
+    (synth_data_dir / "roads.geojson").write_bytes(orjson.dumps(roads))
+    for stale in ("graph.npz", "graph_meta.json"):
+        (synth_data_dir / stale).unlink(missing_ok=True)
+    with TestClient(create_app(data_dir=str(synth_data_dir))) as c:
+        body = c.post("/api/route", json={"start": _pt(200, 0), "end": _pt(200, -100), "vehicle": "moped"}).json()
+        assert "route uses 330 ft of bike path on Cycle Path, which is usually reserved for bicycles" in body["warnings"]
+        # Other vehicles aren't warned.
+        body = c.post("/api/route", json={"start": _pt(200, 0), "end": _pt(200, -100), "vehicle": "scooter"}).json()
+        assert not any("bike path" in w for w in body["warnings"])
+
+
+def test_union_square_itself_leads_the_search(client):
+    rows = client.get("/api/search", params={"q": "Union Square"}).json()
+    assert rows[0]["kind"] == "place" and rows[0]["text"].startswith("Union Square")
+    assert rows[0]["lat"] == pytest.approx(37.78799) and rows[0]["lon"] == pytest.approx(-122.40752)
+
+
+def test_added_places_and_name_fixes():
+    rows = [
+        ["o-1", "Oakland-San Francico Bay Bridge", "bridge", None, -122.3874, 37.78937],
+        ["o-2", "Union Square", "convenience_store", "548 Market St", -122.40173, 37.78916],
+    ]
+    fixed = place_fixes.fix_places(rows)
+    names = [r[1] for r in fixed]
+    assert "Oakland-San Francisco Bay Bridge" in names and "Oakland-San Francico Bay Bridge" not in names
+    # The square comes before the shop named after it.
+    assert names.index("Union Square") < [i for i, r in enumerate(fixed) if r[0] == "o-2"][0]
+    assert rows[0][1] == "Oakland-San Francico Bay Bridge", "the input rows are left alone"

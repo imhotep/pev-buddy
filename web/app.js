@@ -1,6 +1,7 @@
 "use strict";
 
 const SF_CENTER = [-122.4194, 37.7749];
+const START_ZOOM = 12.5;
 // Users who prefer reduced motion get instant map jumps instead of animated
 // flyTo/fitBounds transitions.
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -27,7 +28,7 @@ const map = new maplibregl.Map({
   container: "map",
   style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
   center: SF_CENTER,
-  zoom: 12.5,
+  zoom: START_ZOOM,
   // maxBounds keeps the map around the city; minZoom is kept well below that
   // so it never overrides the bounds on wide viewports.
   minZoom: 9,
@@ -145,6 +146,9 @@ const state = {
   // locker / rack (endRef) and parkFor is where the rider is really going.
   parkFor: null,
   parkKind: null, // "charger" | "locker" | "rack"
+  // The last route request found nothing to ride (an error, or start and
+  // destination at one spot): nothing to park near either.
+  noRide: false,
 };
 let locating = false; // a start-location lookup is in flight
 
@@ -843,7 +847,7 @@ function syncParking() {
   const goal = parkGoal();
   // No chips without a destination, or when the destination already is a
   // charger / locker / rack the rider picked.
-  const show = !!goal && !goal.poi;
+  const show = !!goal && !goal.poi && (!state.noRide || !!state.parkFor);
   box.classList.toggle("hidden", !show);
   chips.innerHTML = "";
   if (show) {
@@ -900,6 +904,7 @@ function resetTrip() {
   state.endRef = null;
   state.parkFor = null;
   state.parkKind = null;
+  state.noRide = false;
   syncParking();
   state.routeShown = false;
   state.activeStep = null;
@@ -915,7 +920,11 @@ function resetTrip() {
   syncStepsToggle();
   syncNavUI();
 }
-document.getElementById("reset-route").addEventListener("click", resetTrip);
+// The Reset button also brings back the city view the app opens on (#54).
+document.getElementById("reset-route").addEventListener("click", () => {
+  resetTrip();
+  map.flyTo({ center: SF_CENTER, zoom: START_ZOOM, bearing: 0, ...FLY });
+});
 
 // "Steps" (route actions) and the ride bar's "Steps" both toggle the drawer.
 function syncStepsToggle() {
@@ -2058,6 +2067,8 @@ async function computeRoute() {
       return;
     }
     state.routeShown = false;
+    state.noRide = true;
+    syncParking();
     syncNavUI();
     closeStepsDrawer(false);
   } finally {
@@ -2108,6 +2119,8 @@ function renderRoute(data) {
   // Start and destination at one spot: nothing to ride.
   const here = data.distance_m < 1;
   document.getElementById("start-ride").classList.toggle("hidden", here);
+  state.noRide = here;
+  syncParking();
   let html = here
     ? `<b>You're already there</b>: the start and destination are the same spot.<br>`
     : `<b>${fmtDist(data.distance_m)}</b> · ${fmtMin(data.duration_s)}${climb} · ${n} step${n === 1 ? "" : "s"}<br>`;
@@ -2175,6 +2188,7 @@ function renderRoute(data) {
 // Zoom the camera to a [lon, lat] polyline. Bounds come from the path alone —
 // extending the current view would mean never zooming in — and the padding
 // keeps it clear of whatever UI currently covers the map.
+const FIT_MAX_ZOOM = 17;
 function fitToPath(path, options = {}) {
   if (!path || !path.length) return;
   const bounds = new maplibregl.LngLatBounds(path[0], path[0]);
@@ -2185,7 +2199,9 @@ function fitToPath(path, options = {}) {
   // after stopping any camera animation, which would write its padding back.
   map.stop();
   map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
-  map.fitBounds(bounds, { padding: mapPadding(), ...options });
+  // A path that is one spot (start = destination) has no size to fit:
+  // without a cap the camera zooms past every tile and label (#53).
+  map.fitBounds(bounds, { padding: mapPadding(), maxZoom: FIT_MAX_ZOOM, ...options });
 }
 
 // The route overview: the whole route and both endpoint pins, clear of the

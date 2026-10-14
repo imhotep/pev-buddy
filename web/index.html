@@ -16,7 +16,7 @@
   <script src="vendor/maplibre-gl@4.7.1/maplibre-gl.js" integrity="sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj"></script>
   <link rel="stylesheet" href="vendor/maplibre-gl@4.7.1/maplibre-gl.css" integrity="sha384-MinO0mNliZ3vwppuPOUnGa+iq619pfMhLVUXfC4LHwSCvF9H+6P/KO4Q7qBOYV5V" />
   <!-- style.css comes after maplibre-gl.css so our popup overrides win at equal specificity -->
-  <link rel="stylesheet" href="style.css?v=60" />
+  <link rel="stylesheet" href="style.css?v=61" />
 </head>
 <body>
   <aside id="sidebar">
@@ -36,7 +36,7 @@
     </header>
 
     <div class="search">
-      <input id="search" type="text" role="combobox" aria-autocomplete="list" placeholder="Search SF — address, business, or place…" autocomplete="off" aria-label="Search San Francisco addresses, businesses, or places" aria-expanded="false" aria-controls="search-results" aria-describedby="search-help" />
+      <input id="search" type="text" maxlength="100" role="combobox" aria-autocomplete="list" placeholder="Search SF — address, business, or place…" autocomplete="off" aria-label="Search San Francisco addresses, businesses, or places" aria-expanded="false" aria-controls="search-results" aria-describedby="search-help" />
       <div id="search-results" class="hidden" role="listbox" aria-label="Search results"></div>
       <div id="search-help" class="visually-hidden">Use the arrow keys to move through results. Enter picks the highlighted one for the highlighted trip row; Shift+Enter for the other row.</div>
       <div id="search-status" class="visually-hidden" aria-live="polite"></div>
@@ -136,8 +136,8 @@
     </div>
     <ol id="steps"></ol>
   </div>
-  <script src="app.js?v=60"></script>
+  <script src="app.js?v=61"></script>
   <!-- Console developer tools (pev.help()); idle until called. -->
-  <script src="debug.js?v=60"></script>
+  <script src="debug.js?v=61"></script>
 </body>
 </html>

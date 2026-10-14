@@ -1561,3 +1561,67 @@ def test_end_ride_clears_a_step_picked_during_the_ride(ride_page):
     assert page.locator("#steps li.active").count() == 0
     # On a desktop the steps list stays beside the map, as next to any route.
     assert page.is_visible("#steps-drawer")
+
+
+# ------------------------------------------------------------ v60 QA pass (#53, #54)
+
+
+def test_same_spot_trip_keeps_a_readable_zoom_and_offers_no_parking(page):
+    # #53: a one-point route has no size to fit; the camera stops at z17.
+    # #54.1: nothing to ride, so nothing to park near.
+    _set_trip_m(page, (0, -100), (0, -100), end_label="Same spot")
+    page.wait_for_function("() => state.route && !map.isMoving()")
+    page.wait_for_timeout(700)
+    assert page.evaluate("() => map.getZoom()") <= 17.01
+    assert not page.is_visible("#park-near")
+    # A real trip brings the parking tiles back.
+    _set_trip_m(page, (0, -100), (190, -100), end_label="Cafe")
+    page.wait_for_function("() => state.route && state.route.distance_m > 1")
+    assert page.is_visible("#park-near")
+
+
+def test_unroutable_destination_offers_no_parking(page):
+    _set_trip_m(page, (0, -100), (3000, 3000), end_label="The Bay")
+    page.wait_for_function("() => /isn't near a street/.test(document.getElementById('route-summary').textContent)")
+    assert not page.is_visible("#park-near")
+
+
+def test_reset_trip_returns_to_the_city_view(page):
+    route_via_ui(page)
+    page.evaluate("() => map.jumpTo({ center: [-122.5, 37.75], zoom: 16 })")
+    page.click("#reset-route")
+    page.wait_for_function(
+        "() => !map.isMoving() && Math.abs(map.getZoom() - START_ZOOM) < 0.01"
+        " && Math.abs(map.getCenter().lng - SF_CENTER[0]) < 1e-4 && Math.abs(map.getCenter().lat - SF_CENTER[1]) < 1e-4"
+    )
+
+
+def test_search_box_never_sends_an_over_long_query(page):
+    # #54.7: the API caps queries at 100 characters; the box stops there too.
+    assert page.get_attribute("#search", "maxlength") == "100"
+    page.fill("#search", "x" * 150)
+    assert len(page.input_value("#search")) == 100
+
+
+def test_title_taps_bring_back_a_minimized_debug_panel(ride_page):
+    page = ride_page
+    page.evaluate("() => pev.hud(true)")
+    page.click("#pev-debug-hud .pev-dbg-min")
+    assert not page.is_visible("#pev-debug-hud .pev-dbg-readout")
+    for _ in range(5):
+        page.click("#sidebar header h1")
+    page.wait_for_selector("#pev-debug-hud .pev-dbg-readout", state="visible")
+    page.evaluate("() => pev.hud(false)")
+
+
+def test_debug_route_readout_follows_the_route(ride_page):
+    page = ride_page
+    page.evaluate("() => pev.hud(true)")
+    route_via_ui(page)
+    page.click("#pev-debug-hud button:text-is(\"Route\")")
+    assert '"vehicle": "scooter"' in page.text_content("#pev-debug-hud .pev-dbg-out")
+    page.select_option("#vehicle", "ebike_c3")
+    page.wait_for_function(
+        "() => document.querySelector('#pev-debug-hud .pev-dbg-out').textContent.includes('\"vehicle\": \"ebike_c3\"')"
+    )
+    page.evaluate("() => pev.hud(false)")
