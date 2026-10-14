@@ -100,7 +100,11 @@ to answer it instead.
    next turn and a live countdown; the voice gives each turn ahead of time and
    again just before it. Guidance advances by itself as you pass each turn,
    and if you leave the route (three GPS fixes or five seconds off it) it
-   reroutes from where you are.
+   reroutes from where you are. On arrival it says so, and like other
+   navigation apps the trip clears itself about 10 seconds later, leaving the
+   map on your destination (**Done** clears it right away). If you parked
+   near the destination, the ride line goes and the walk stays on the map
+   until you tap **Done**.
 5. **🔊 Voice** mutes or unmutes (remembered). **Steps** opens the list; tap a
    step to see it on the map. **Re-center** appears after you pan. **End
    ride** returns to the route overview with no step highlighted (the steps
@@ -336,7 +340,9 @@ tap from the route.
      GPS fixes snapped to the route, a next-maneuver banner and
      voice prompts that advance on their own, rerouting after three fixes or
      five seconds off the route, heading-up map (GPS course when moving,
-     compass otherwise), screen wake lock. The progress logic is plain
+     compass otherwise), screen wake lock, and on arrival the trip clearing
+     itself after `RIDE.ARRIVE_CLEAR_MS` (10 s), unless a walk from a parking
+     spot is left to do. The progress logic is plain
      functions in `app.js` (`snapToRoute`, `nextManeuver`, `offRouteCount`,
      …) with browser tests that replay scripted GPS tracks.
    - **Phone layout:** the map ends where the bottom sheet starts, so fitted

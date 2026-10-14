@@ -122,7 +122,10 @@ def test_ride_mode_wiring():
     nav_body = js.split("function syncNavUI()", 1)[1].split("\n}\n", 1)[0]
     assert "route-actions" in nav_body and "routeShown" in nav_body
     assert 'getElementById("start-ride").addEventListener("click", startRide)' in js
-    assert 'getElementById("end-ride").addEventListener("click", endRide)' in js
+    assert 'getElementById("end-ride").addEventListener("click", () => (ride.arrived ? finishTrip() : endRide()))' in js
+    # Arriving clears the trip on its own, like other navigation apps.
+    arrive_body = js.split("function arrive()", 1)[1].split("\n}\n", 1)[0]
+    assert "setTimeout(finishTrip" in arrive_body
     # Hands-free: GPS watch, voice, wake lock, mute remembered safely.
     start_body = js.split("function startRide()", 1)[1].split("\n}\n", 1)[0]
     for needed in ("startRideTracking()", "acquireWakeLock()", "speak(", "ensureOrientation()"):

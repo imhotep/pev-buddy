@@ -1046,6 +1046,84 @@ def test_arrival_mentions_the_walk_to_the_real_destination(ride_page):
     assert any("Cafe is" in t and "feet" in t for t in page.evaluate("() => window.__spoken"))
 
 
+def _trip_cleared(page):
+    return page.evaluate(
+        """() => !document.body.classList.contains('riding') && !state.route && !state.routeShown
+              && !state.startRef && !state.endRef && !state.parkFor
+              && map.getSource('pev-route')._data.features.length === 0
+              && document.getElementById('end-ride').textContent === 'End ride'"""
+    )
+
+
+def test_arrival_clears_the_trip_by_itself_on_the_destination(ride_page):
+    page = ride_page
+    page.evaluate("() => { arriveClearMs = 400; }")
+    route_via_ui(page)
+    page.click("#start-ride")
+    fix_at(page, 200, -90)
+    assert banner(page)["state"] == "arrived"
+    # The arrival shows first, with Done as the way out...
+    assert page.text_content("#end-ride") == "Done"
+    assert page.evaluate("() => document.body.classList.contains('riding')")
+    # ...then the trip clears by itself, the map left north-up on the destination.
+    page.wait_for_function("() => !document.body.classList.contains('riding')")
+    assert _trip_cleared(page)
+    dlon, dlat = m_to_lonlat(200, -100)
+    page.wait_for_function(
+        f"() => {{ const c = map.getCenter(); return Math.abs(c.lng - {dlon}) < 1e-4"
+        f" && Math.abs(c.lat - {dlat}) < 1e-4 && Math.abs(map.getBearing()) < 1; }}"
+    )
+
+
+def test_done_clears_the_trip_right_away(ride_page):
+    page = ride_page
+    route_via_ui(page)
+    page.click("#start-ride")
+    fix_at(page, 200, -90)
+    page.click("#end-ride:text-is('Done')")
+    assert _trip_cleared(page)
+    assert page.evaluate("() => arriveTimer") is None
+
+
+def test_ending_the_ride_before_arriving_keeps_the_trip(ride_page):
+    page = ride_page
+    page.evaluate("() => { arriveClearMs = 200; }")
+    route_via_ui(page)
+    page.click("#start-ride")
+    fix_at(page, 0, 0)
+    page.click("#end-ride:text-is('End ride')")
+    page.wait_for_timeout(400)
+    assert page.evaluate("() => !!state.route && state.routeShown && !!state.endRef")
+
+
+def test_arriving_at_a_parking_spot_leaves_the_walk_until_done(ride_page):
+    page = ride_page
+    page.evaluate("() => { arriveClearMs = 200; }")
+    _set_trip_m(page, (0, -100), (190, -100))
+    page.wait_for_function("() => state.route")
+    page.click('.park-chip[data-kind="locker"]')
+    page.wait_for_function("() => state.parkKind === 'locker' && state.route.end_label !== 'Cafe'")
+    page.click("#start-ride")
+    fix_at(page, 200, -100)
+    page.wait_for_function("() => ride.arrived")
+    page.wait_for_timeout(400)
+    # No auto-clear: the ride line is gone, the walk and the destination stay.
+    after = page.evaluate(
+        """() => ({
+          riding: document.body.classList.contains('riding'),
+          route: map.getSource('pev-route')._data.features.length,
+          walk: map.getSource('pev-walk')._data.features.length,
+          goal: !!document.querySelector('.goal-ring'),
+          button: document.getElementById('end-ride').textContent,
+        })"""
+    )
+    assert after == {"riding": True, "route": 0, "walk": 1, "goal": True, "button": "Done"}
+    page.click("#end-ride")
+    assert _trip_cleared(page)
+    assert page.evaluate("() => map.getSource('pev-walk')._data.features.length") == 0
+    assert not page.query_selector(".goal-ring")
+
+
 # ------------------------------------------------- phones: start from my location
 
 # Headless Chrome reports a fine pointer even with touch emulation; the app
