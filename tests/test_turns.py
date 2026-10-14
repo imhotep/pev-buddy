@@ -154,9 +154,10 @@ def test_depart_adopts_name_from_named_continuation():
     g.build({"type": "FeatureCollection", "features": feats}, connectors)
     r = find_route(g, *m_to_lonlat(0, 0), *m_to_lonlat(100, 0))
     steps = build_steps(g, r.edge_idxs, "Home")
-    assert len(steps) == 1
-    assert steps[0]["maneuver"] == "depart"
+    # One street all the way: the departure, then the arrival.
+    assert [s["maneuver"] for s in steps] == ["depart", "arrive"]
     assert steps[0]["instruction"] == "Head east on Main Street."
+    assert steps[1]["instruction"] == "Arrive at Home."
 
 
 def test_same_name_bend_does_not_repeat_onto():

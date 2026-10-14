@@ -17,11 +17,14 @@ def build_steps(
     edge_idxs: list[int],
     destination_name: str | None = None,
     vehicle: str = config.DEFAULT_VEHICLE,
+    edge_parts: list[tuple[float, float]] | None = None,
 ) -> list[dict]:
     """Build human-readable steps. Each step:
     {index, maneuver, instruction, road, distance_m, duration_s, turn_point, bearing_after, geometry}
     `geometry` is the [lon, lat] polyline the step travels (single point for
     the zero-length arrival step), used for on-map highlighting.
+    `edge_parts` (RouteResult.edge_parts) trims the first and last edges to
+    where a trip starts and ends partway along a street.
     """
     arrival = _sentence(f"Arrive at {destination_name or 'your destination'}")
     if not edge_idxs:
@@ -39,12 +42,16 @@ def build_steps(
             }
         ]
 
-    geoms = [graph.edge_geometry(e) for e in edge_idxs]
-    lengths = [graph.edges[e][4] for e in edge_idxs]
+    from .routing import sub_geometry
+
+    parts = edge_parts or [(0.0, 1.0)] * len(edge_idxs)
+    shares = [max(f1 - f0, 0.0) for f0, f1 in parts]
+    geoms = [sub_geometry(graph.edge_geometry(e), *pt) for e, pt in zip(edge_idxs, parts)]
+    lengths = [graph.edges[e][4] * sh for e, sh in zip(edge_idxs, shares)]
     veh = config.VEHICLE_TYPES[vehicle]
     # Per-edge travel time (vehicle cap x road limit, slowed uphill), summed per step.
     climbs = graph.edge_climbs()
-    durations = [graph.edge_duration_s(e, veh, climbs) for e in edge_idxs]
+    durations = [graph.edge_duration_s(e, veh, climbs) * sh for e, sh in zip(edge_idxs, shares)]
     segs = [graph.edges[e][2] for e in edge_idxs]
     names = [graph.segments[s]["name"] for s in segs]
 
@@ -236,7 +243,9 @@ def build_steps(
             }
         )
 
-    if last_turn:
+    # The arrival gets its own step after a final turn, and after a route
+    # that is all one street (else it would be a lone "Head east on ...").
+    if last_turn or len(groups) == 1:
         steps.append(
             {
                 "i0": len(edge_idxs) - 1,
@@ -245,6 +254,8 @@ def build_steps(
                 "instruction": arrival,
                 "road": groups[-1]["name"],
                 "from_node": graph.edges[edge_idxs[-1]][1],
+                # Where the route ends: partway along the last street, maybe.
+                "point": [float(c) for c in geoms[-1][-1]],
                 "zero": True,
             }
         )
@@ -264,7 +275,8 @@ def build_steps(
         dist = 0.0 if st.get("zero") else sum(lengths[i0 : i1 + 1])
         dur = 0.0 if st.get("zero") else sum(durations[i0 : i1 + 1])
         # Geometry of the segment this step covers (for map highlighting).
-        geometry = [list(graph.node(st["from_node"]))] if st.get("zero") else chunk_geometry(i0, i1)
+        point = st.get("point") or [float(c) for c in graph.node(st["from_node"])]
+        geometry = [list(point)] if st.get("zero") else chunk_geometry(i0, i1)
         out.append(
             {
                 "index": j + 1,
@@ -273,7 +285,7 @@ def build_steps(
                 "road": st["road"],
                 "distance_m": dist,
                 "duration_s": dur,
-                "turn_point": [float(c) for c in graph.node(st["from_node"])] if j > 0 else None,
+                "turn_point": point if j > 0 else None,
                 "bearing_after": outbound_bearing(i1),
                 "geometry": geometry,
             }

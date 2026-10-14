@@ -68,6 +68,9 @@ class RouteResult:
     # naming the street an unnamed path leaves from. A street merely signed as
     # a bike route counts as "bike_lane" in segment_stats but not here.
     bike_paths: list[dict] = field(default_factory=list)
+    # Per edge in edge_idxs, the (from, to) fraction of it ridden: (0, 1)
+    # except where a trip starts or ends partway along a street.
+    edge_parts: list[tuple[float, float]] = field(default_factory=list)
 
 
 def snap_to_node(
@@ -129,6 +132,127 @@ def _joined(graph: RoadGraph, node: int, vehicle: str, forward: bool) -> bool:
                 seen.add(y)
                 stack.append(y)
     return False
+
+
+# ---------------------------------------------------------------- mid-street ends
+
+
+@dataclass
+class _Anchor:
+    """A trip end partway along a directed edge: `frac` of the way from its
+    start junction to its end junction (by length)."""
+
+    edge: int
+    frac: float
+    dist_m: float
+
+
+def _project(geom: list[list[float]], lon: float, lat: float) -> tuple[float, float]:
+    """(meters from the point to the polyline, fraction of the polyline's
+    length where it is closest). Local flat projection."""
+    kx = math.cos(math.radians(lat)) * 111_320.0
+    ky = 110_574.0
+    best_d2, best_along, total = float("inf"), 0.0, 0.0
+    for (ax, ay), (bx, by) in zip(geom, geom[1:]):
+        dx, dy = (bx - ax) * kx, (by - ay) * ky
+        L = math.hypot(dx, dy)
+        px, py = (lon - ax) * kx, (lat - ay) * ky
+        t = 0.0 if L == 0 else max(0.0, min(1.0, (px * dx + py * dy) / (L * L)))
+        d2 = (px - t * dx) ** 2 + (py - t * dy) ** 2
+        if d2 < best_d2:
+            best_d2, best_along = d2, total + t * L
+        total += L
+    return math.sqrt(best_d2), (best_along / total if total > 0 else 0.0)
+
+
+def sub_geometry(geom: list[list[float]], f0: float, f1: float) -> list[list[float]]:
+    """The part of a polyline between length fractions f0 <= f1."""
+    if f0 <= 0.0 and f1 >= 1.0:
+        return [list(c) for c in geom]
+    kx = math.cos(math.radians(geom[0][1])) * 111_320.0
+    ky = 110_574.0
+    seg = [math.hypot((b[0] - a[0]) * kx, (b[1] - a[1]) * ky) for a, b in zip(geom, geom[1:])]
+    total = sum(seg)
+    if total == 0:
+        return [list(geom[0])]
+
+    def at(f: float) -> tuple[int, list[float]]:
+        want = f * total
+        run = 0.0
+        for i, L in enumerate(seg):
+            if run + L >= want or i == len(seg) - 1:
+                t = 0.0 if L == 0 else min(1.0, max(0.0, (want - run) / L))
+                a, b = geom[i], geom[i + 1]
+                return i, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+            run += L
+        return len(seg) - 1, list(geom[-1])
+
+    i0, p0 = at(f0)
+    i1, p1 = at(f1)
+    out = [p0, *[list(c) for c in geom[i0 + 1 : i1 + 1]], p1]
+    dedup = [out[0]]
+    for c in out[1:]:
+        if c != dedup[-1]:
+            dedup.append(c)
+    return dedup
+
+
+def _edge_anchors(
+    graph: RoadGraph, lon: float, lat: float, vehicle: str, radius: float, which: str
+) -> list[_Anchor]:
+    """Where a trip end sits on the street network: the nearest point on a
+    street this vehicle may ride, as one anchor per direction it may be ridden
+    there. [] means "use the nearest junction" (the point is at one, or no
+    street is near enough; snap_to_node then decides or raises)."""
+    coords = np.asarray(graph.node_coords, dtype=float)
+    dists = geo.fast_distances(lon, lat, coords)
+    if not len(dists) or float(dists.min()) <= config.SNAP_NODE_M:
+        return []
+    k = min(config.SNAP_EDGE_NODES, len(dists))
+    near = np.argpartition(dists, k - 1)[:k]
+    ok = graph.edge_ok[vehicle]
+    frm, to, seg_col, _head, _len, cat = graph.edge_columns()
+    incoming = graph.incoming()
+    sidewalk = config.CATEGORIES.index("sidewalk")
+    candidates: dict[int, _Anchor] = {}
+    for n in near.tolist():
+        for e in list(graph.adj[n]) + list(incoming[n]):
+            if e in candidates or not ok[e]:
+                continue
+            d, f = _project(graph.edge_geometry(e), lon, lat)
+            if d <= radius:
+                candidates[e] = _Anchor(e, f, d)
+    if not candidates:
+        return []
+    start = which == "start"
+
+    def rank(a: _Anchor) -> float:
+        return a.dist_m + (config.SNAP_SIDEWALK_SLACK_M if cat[a.edge] == sidewalk else 0.0)
+
+    ordered = sorted(candidates.values(), key=rank)
+
+    def joined(a: _Anchor) -> bool:
+        return _joined(graph, to[a.edge] if start else frm[a.edge], vehicle, forward=start)
+
+    # The nearest street joined to the wider network (see snap_to_node's
+    # pockets): judged at the junction a start rides to, or an end comes
+    # from. When none within reach is (a tiny network), the nearest street.
+    best = next((a for a in ordered[: config.SNAP_MAX_CANDIDATES] if joined(a)), None)
+    need_joined = best is not None
+    best = best or ordered[0]
+    # At a street's end (a corner) the trip starts or ends at that junction,
+    # free to turn any way, as before.
+    length = _len[best.edge]
+    if min(best.frac, 1.0 - best.frac) * length <= config.SNAP_NODE_M:
+        return []
+    # Every direction of that street at that spot (a two-way street is two
+    # edges over one geometry): ride off, or arrive, either way.
+    same = [
+        a for a in candidates.values()
+        if seg_col[a.edge] == seg_col[best.edge] and abs(a.dist_m - best.dist_m) < 0.5
+        and (not need_joined or joined(a))
+    ]
+    return same or [best]
 
 
 @dataclass
@@ -306,12 +430,28 @@ def find_route(
         msg = f"{veh.label} is not street-legal in California — off-highway use only. Choose a street-legal vehicle type."
         raise RouteError(msg, code="vehicle_not_street_legal", user_message=msg)
 
-    start, start_d = snap_to_node(graph, start_lon, start_lat, vehicle, snap_radius_m, prefer="start")
-    end, end_d = snap_to_node(graph, end_lon, end_lat, vehicle, snap_radius_m, prefer="end")
+    radius = snap_radius_m if snap_radius_m is not None else config.SNAP_RADIUS_M
+    frm_col, to_col = graph.edge_columns()[:2]
+    # Each end is partway along a street (anchors), or at a junction.
+    s_anchors = _edge_anchors(graph, start_lon, start_lat, vehicle, radius, "start")
+    e_anchors = _edge_anchors(graph, end_lon, end_lat, vehicle, radius, "end")
+    if s_anchors:
+        start, start_d = to_col[s_anchors[0].edge], s_anchors[0].dist_m
+    else:
+        start, start_d = snap_to_node(graph, start_lon, start_lat, vehicle, snap_radius_m, prefer="start")
+    if e_anchors:
+        end, end_d = frm_col[e_anchors[0].edge], e_anchors[0].dist_m
+    else:
+        end, end_d = snap_to_node(graph, end_lon, end_lat, vehicle, snap_radius_m, prefer="end")
 
     if graph.scc is not None:
-        c0, c1 = graph.scc[start], graph.scc[end]
-        if c0 != c1 and not _scc_reachable(graph.scc_reach, c0, c1):
+        starts = [to_col[a.edge] for a in s_anchors] or [start]
+        ends = [frm_col[a.edge] for a in e_anchors] or [end]
+        if not any(
+            graph.scc[s0] == graph.scc[e0] or _scc_reachable(graph.scc_reach, graph.scc[s0], graph.scc[e0])
+            for s0 in starts
+            for e0 in ends
+        ):
             raise RouteError(
                 f"no {veh.label.lower()} route: start and destination are not connected on "
                 "roads this vehicle type may use",
@@ -320,7 +460,7 @@ def find_route(
                 f"a {veh.label.lower()} may use.",
             )
 
-    if start == end:
+    if start == end and not s_anchors and not e_anchors:
         return RouteResult(
             edge_idxs=[],
             path=[list(graph.node(start))],
@@ -339,20 +479,47 @@ def find_route(
     E_hill = graph.hill_costs(veh.profile)  # >= 0, so the heuristic stays admissible
     h = _heuristics(graph, end_lon, end_lat, veh.profile)
     START = -1
+    GOAL = -2  # the end point partway along an edge, as a search state (GOAL, edge)
+
+    def part_cost(e: int, f0: float, f1: float) -> float:
+        return (f1 - f0) * (E_len[e] * mult[E_cat[e]] + E_hill[e])
+
+    targets = {a.edge: a.frac for a in e_anchors}
     open_heap: list[tuple] = []  # (f, g, tie, node, in_edge)
-    best: dict[tuple[int, int], float] = {(start, START): 0.0}
-    parent: dict[tuple[int, int], tuple[int, int]] = {}
+    best: dict[tuple[int, int], float] = {}
+    parent: dict[tuple[int, int], tuple[int, int] | None] = {}
     tie = 0
-    heapq.heappush(open_heap, (h[start], 0.0, tie, start, START))
+
+    def push(state: tuple[int, int], g: float, hval: float, from_state) -> None:
+        nonlocal tie
+        if g < best.get(state, float("inf")) - 1e-9:
+            best[state] = g
+            parent[state] = from_state
+            tie += 1
+            heapq.heappush(open_heap, (g + hval, g, tie, state[0], state[1]))
+
+    if s_anchors:
+        # Ride off from the start point along each direction of its street;
+        # the in-edge is that street, so turn rules apply at its end.
+        for a in s_anchors:
+            push((to_col[a.edge], a.edge), part_cost(a.edge, a.frac, 1.0), h[to_col[a.edge]], None)
+            if a.edge in targets and targets[a.edge] >= a.frac:
+                # Start and end on one stretch of street, in riding order.
+                push((GOAL, a.edge), part_cost(a.edge, a.frac, targets[a.edge]), 0.0, None)
+    else:
+        push((start, START), 0.0, h[start], None)
 
     while open_heap:
         f, g, _, node, in_edge = heapq.heappop(open_heap)
         state = (node, in_edge)
         if g > best[state] + 1e-9:
             continue  # stale entry
-        if node == end:
+        if node == GOAL or (not e_anchors and node == end):
             # with an admissible heuristic, the first popped goal state is optimal
-            return _reconstruct(graph, parent, state, start, end, start_d, end_d, veh)
+            return _reconstruct(
+                graph, parent, state, start, end, start_d, end_d, veh,
+                start_frac={a.edge: a.frac for a in s_anchors}, end_frac=targets,
+            )
 
         for e in graph.adj[node]:
             if not ok[e]:
@@ -374,13 +541,10 @@ def find_route(
                     forbidden = graph.prohib_moto.get((prev_seg, mask, node))
                     if forbidden is not None and seg_idx in forbidden:
                         continue  # a car rule bicycles are exempt from
-            nstate = (b, e)
-            ng = g + E_len[e] * mult[E_cat[e]] + E_hill[e]
-            if ng < best.get(nstate, float("inf")) - 1e-9:
-                best[nstate] = ng
-                parent[nstate] = state
-                tie += 1
-                heapq.heappush(open_heap, (ng + h[b], ng, tie, b, e))
+            if e in targets:
+                # The end point is partway along this edge.
+                push((GOAL, e), g + part_cost(e, 0.0, targets[e]), 0.0, state)
+            push((b, e), g + E_len[e] * mult[E_cat[e]] + E_hill[e], h[b], state)
 
     raise RouteError(
         f"no {veh.label.lower()} route found between the given points — the destination is "
@@ -400,15 +564,20 @@ def _reconstruct(
     start_d: float,
     end_d: float,
     veh: config.VehicleType,
+    start_frac: dict[int, float] | None = None,
+    end_frac: dict[int, float] | None = None,
 ) -> RouteResult:
     edges: list[int] = []
     state = goal
-    start_state = (start, -1)
-    while state != start_state:
-        e = state[1]
-        edges.append(e)
+    while state is not None and state[1] != -1:
+        edges.append(state[1])
         state = parent[state]
     edges.reverse()
+    parts = [(0.0, 1.0) for _ in edges]
+    if edges and start_frac and edges[0] in start_frac:
+        parts[0] = (start_frac[edges[0]], parts[0][1])
+    if edges and goal[0] == -2:
+        parts[-1] = (parts[-1][0], end_frac[edges[-1]])
 
     path: list[list[float]] = []
     total = 0.0
@@ -419,16 +588,18 @@ def _reconstruct(
     stats: dict[str, dict] = {}
     bike_paths: list[dict] = []
     for i, e in enumerate(edges):
-        geom = graph.edge_geometry(e)
+        f0, f1 = parts[i]
+        share = max(f1 - f0, 0.0)
+        geom = sub_geometry(graph.edge_geometry(e), f0, f1)
         for c in geom if i == 0 else geom[1:]:
             if not path or path[-1] != c:
                 path.append(c)
         _a, _b, _s, _h, length, category, eff, posted = graph.edges[e]
+        length *= share
         total += length
-        # Per-edge ETA from vehicle cap x road limit (was a flat 15 mph).
         # Per-edge ETA from vehicle cap x road limit, slowed uphill.
-        duration += graph.edge_duration_s(e, veh, climbs)
-        climb = float(climbs[e]) if len(climbs) else 0.0
+        duration += graph.edge_duration_s(e, veh, climbs) * share
+        climb = float(climbs[e]) * share if len(climbs) else 0.0
         climb_total += max(climb, 0.0)
         descent_total += max(-climb, 0.0)
         st = stats.setdefault(category, {"distance_m": 0.0, "max_speed_mph": None})
@@ -451,6 +622,11 @@ def _reconstruct(
                 bike_paths.append({"name": seg["name"], "near": near, "distance_m": length, "last": i})
     for p in bike_paths:
         del p["last"]
+    if not path:
+        path = [list(graph.node(start))]
+    if edges:
+        start = graph.edges[edges[0]][0] if parts[0][0] < 0.5 else graph.edges[edges[0]][1]
+        end = graph.edges[edges[-1]][1] if parts[-1][1] > 0.5 else graph.edges[edges[-1]][0]
     return RouteResult(
         edge_idxs=edges,
         path=path,
@@ -464,4 +640,5 @@ def _reconstruct(
         climb_m=climb_total,
         descent_m=descent_total,
         bike_paths=bike_paths,
+        edge_parts=parts,
     )

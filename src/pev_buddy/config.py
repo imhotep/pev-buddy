@@ -327,6 +327,15 @@ SNAP_RADIUS_M = 200.0
 # SNAP_MAX_CANDIDATES within the radius.
 SNAP_POCKET_NODES = 30
 SNAP_MAX_CANDIDATES = 40
+# Trips start and end at the nearest point on a street, not at its nearest
+# junction (#51: a 34 m hop on one-way 3rd St became a 550 m loop). A point
+# this close to a junction starts or ends there, as before.
+SNAP_NODE_M = 3.0
+# A sidewalk is drawn a few meters beside its street: within this much
+# farther, the street wins (riding a sidewalk is a last resort).
+SNAP_SIDEWALK_SLACK_M = 15.0
+# Edges considered for a point: those touching its nearest junctions.
+SNAP_EDGE_NODES = 64
 
 # A* / Dijkstra tuning.
 REVERSAL_PENALTY = 4.0  # extra cost factor for an immediate U-turn
