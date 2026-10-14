@@ -62,7 +62,7 @@
 #pev-debug-hud > * { flex-shrink: 0; }
 #pev-debug-hud.min { width: auto; padding: 6px; }
 #pev-debug-hud.min > :not(.pev-dbg-head),
-#pev-debug-hud.min .pev-dbg-title, #pev-debug-hud.min .pev-dbg-close { display: none; }
+#pev-debug-hud.min .pev-dbg-title { display: none; }
 /* Header: grip, title, minimize, and close in the top-right corner. */
 #pev-debug-hud .pev-dbg-head { display: flex; align-items: center; gap: 6px; }
 #pev-debug-hud .pev-dbg-title { flex: 1; font-weight: 700; color: #7f7; letter-spacing: 0.3px; }
@@ -449,7 +449,8 @@
       r.steps.map((s) => ({ step: s.index, instruction: s.instruction, ft: Math.round((s.distance_m || 0) * 3.28084), s: s.duration_s }))
     );
     return {
-      ...(forPanel ? { steps: r.steps.map((s) => `${s.index}. ${s.instruction} (${Math.round((s.distance_m || 0) * 3.28084)} ft)`) } : {}),
+      // The same rounding as the steps list, so the two never disagree (#58).
+      ...(forPanel ? { steps: r.steps.map((s) => `${s.index}. ${s.instruction} (${fmtDist(s.distance_m || 0)})`) } : {}),
       miles: +(r.distance_m / 1609.344).toFixed(2),
       minutes: Math.round(r.duration_s / 60),
       climb_ft: Math.round((r.climb_m || 0) * 3.28084),

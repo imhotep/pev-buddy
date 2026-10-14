@@ -183,24 +183,36 @@ class Geocoder:
         results: list[dict] = []
         for street in self._candidates(street_part):
             per_street = max(1, limit // 3)
-            found = 0
+            # One result per address: a building's unit records ("100 1ST ST
+            # (100)", "(2700)", ...) are one place to ride to (#58).
+            by_number: dict = {}
             for si in self.street_index[street]:
                 lo, hi = int(self.row_offsets[si]), int(self.row_offsets[si + 1])
                 if number:
                     code = self.number_of.get(number)
-                    rows: list[int] = []
+                    rows = []
                     if code is not None:
-                        hits = np.nonzero(self.number_code[lo:hi] == code)[0]
-                        rows = [lo + int(j) for j in hits[: per_street - found]]
-                    for j in rows:
-                        results.append(self._item(street, j, score=100))
+                        rows = [lo + int(j) for j in np.nonzero(self.number_code[lo:hi] == code)[0]]
                 else:
-                    rows = range(lo, min(hi, lo + per_street - found))
-                    for j in rows:
-                        results.append(self._item(street, j, score=60))
-                found += len(rows)
-                if found >= per_street:
-                    break
+                    rows = range(lo, hi)
+                for j in rows:
+                    n = int(self.number_code[j])
+                    if n in by_number:
+                        by_number[n][1] += 1
+                        if not self.units[int(self.unit_code[by_number[n][0]])]:
+                            continue
+                        if not self.units[int(self.unit_code[j])]:
+                            by_number[n][0] = j  # the record without a unit stands for the address
+                    elif len(by_number) < per_street:
+                        by_number[n] = [j, 1]
+                    elif not number:
+                        break
+            for j, count in by_number.values():
+                item = self._item(street, j, score=100 if number else 60)
+                if count > 1 and item["unit"]:
+                    item["unit"] = None
+                    item["text"] = f"{item['number']} {street}" if item["number"] else street
+                results.append(item)
             if len(results) >= limit * 2:
                 break
 

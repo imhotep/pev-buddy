@@ -316,10 +316,21 @@ def test_unnamed_ways_are_described_by_their_class():
 def test_turn_onto_unnamed_street_names_no_road():
     g = _chain_graph(
         ("Main Street", "residential", [(0, 0), (100, 0)]),
-        (None, "service", [(100, 0), (100, 100)]),
+        (None, "residential", [(100, 0), (100, 100)]),
     )
     steps = _steps_along(g, (0, 0), (100, 100))
     assert steps[1]["instruction"] == "Turn left."
+
+
+def test_turn_into_an_unnamed_service_way_says_alley():
+    # #58: the moped's Mission-to-Jessie cut-through read just "Turn left."
+    g = _chain_graph(
+        ("Main Street", "residential", [(0, 0), (100, 0)]),
+        (None, "service", [(100, 0), (100, 100)]),
+    )
+    steps = _steps_along(g, (0, 0), (100, 100))
+    assert steps[1]["instruction"] == "Turn left onto the alley."
+    assert steps[1]["road"] is None
 
 
 def test_staying_on_only_when_already_on_that_street():

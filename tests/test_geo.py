@@ -8,6 +8,9 @@ from pev_buddy.geo import format_distance
     [
         (0, "0 ft"),
         (12, "40 ft"),
+        (22.8, "75 ft"),  # under 100 ft: to the nearest 5 (#58: 70 vs 75 ft)
+        (29.0, "95 ft"),
+        (29.8, "100 ft"),
         (60, "200 ft"),
         (160, "520 ft"),  # just under a tenth of a mile: still feet
         (161, "0.1 mi"),

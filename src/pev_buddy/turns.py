@@ -298,6 +298,9 @@ def _unnamed_noun(seg_class: str, category: str) -> str | None:
         return "the sidewalk"
     if seg_class in _PATH_CLASSES:
         return "the path"
+    if seg_class == "service":
+        # Unnamed service ways in SF are mostly alleys and mid-block cut-throughs.
+        return "the alley"
     return None  # an unnamed street or connector: just say which way to turn
 
 
