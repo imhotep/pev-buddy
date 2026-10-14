@@ -1442,3 +1442,44 @@ def test_rider_is_a_red_arrow_that_turns_with_the_heading(ride_page):
     page.wait_for_selector(".rider-puck svg path")
     assert page.get_attribute(".rider-puck svg path", "fill").lower() == "#e82127"
     assert page.evaluate("() => Math.round(riderMarker.getRotation())") == 90
+
+
+# ------------------------------------------------------- QA round 2: #44, #45
+
+
+def test_timeout_with_the_prompt_unanswered_says_to_answer_it(open_app):
+    # #44: the browser's own prompt was never answered (permission "prompt").
+    page = open_app(init_scripts=[_slow_geo(50, succeed=False)])
+    page.click("#use-location")
+    page.wait_for_selector("#trip-status.error")
+    text = page.text_content("#trip-status")
+    assert "answer your browser's location prompt" in text and "Timed out" not in text
+
+
+def test_timeout_with_location_allowed_says_what_to_check(open_app):
+    lon, lat = m_to_lonlat(0, 0)
+    page = open_app(
+        init_scripts=[_slow_geo(50, succeed=False)],
+        permissions=["geolocation"], geolocation={"latitude": lat, "longitude": lon},
+    )
+    page.click("#use-location")
+    page.wait_for_selector("#trip-status.error")
+    text = page.text_content("#trip-status")
+    assert "Location Services" in text and "Wi-Fi" in text
+
+
+def test_end_ride_clears_a_step_picked_during_the_ride(ride_page):
+    # #45: the step highlight (and the selected step) outlived the ride.
+    page = ride_page
+    route_via_ui(page)
+    page.click("#start-ride")
+    fix_at(page, 0, 0)
+    page.click("#ride-steps")
+    page.locator("#steps li").nth(1).click()
+    page.wait_for_function("() => state.activeStep !== null")
+    page.click("#end-ride")
+    assert page.evaluate("() => state.activeStep") is None
+    assert page.evaluate("() => map.getSource('pev-step-hl')._data.features.length") == 0
+    assert page.locator("#steps li.active").count() == 0
+    # On a desktop the steps list stays beside the map, as next to any route.
+    assert page.is_visible("#steps-drawer")

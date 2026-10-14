@@ -289,10 +289,14 @@ tap from the route.
    **Known-bad places.** A few Overture place records sit far from where the
    place is (the "Ferry Building, Embarcadero" historic site in Bernal
    Heights, Oakland's Coliseum and Oracle Arena in SoMa, SFO inside the
-   city). `src/pev_buddy/place_fixes.py` lists them, each checked by hand
-   with the reason, and search never offers them. A general rule was tried
-   and rejected: a place having an address doesn't make its coordinates
-   right, so it dropped correct landmarks.
+   city, Lake Merritt on Fillmore St). `src/pev_buddy/place_fixes.py` lists
+   them (18 entries), each checked by hand with the reason, and search never
+   offers them. A general rule was tried and rejected: a place having an
+   address doesn't make its coordinates right, so it dropped correct
+   landmarks. After a data sync, `python -m pev_buddy.place_audit` prints the
+   likely candidates (no address, inside the city, named after somewhere
+   outside it) for review; it doesn't drop them itself, since some are right
+   (Muni's "San Jose and Ocean station" is on San Jose Avenue in SF).
 
 4. **UI** is a dependency-free vanilla-JS + MapLibre GL single page,
    installable as a PWA (`web/`: `app.js`, `debug.js`, `style.css`, `sw.js`).

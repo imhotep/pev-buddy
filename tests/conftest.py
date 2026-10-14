@@ -223,6 +223,9 @@ def write_synth_bundle(data):
                 ["p-3", "Test Bakery Oakland", "restaurant", None, -122.30, 37.80],
                 # No address of its own: search says which street it's near.
                 ["p-5", "Corner Kiosk", "kiosk", None, m_to_lonlat(0, -95)[0], m_to_lonlat(0, -95)[1]],
+                # More known-misplaced records (issues #42, #43): never offered.
+                ["p-6", "SFO Int'l Airport", "airport", None, m_to_lonlat(50, -50)[0], m_to_lonlat(50, -50)[1]],
+                ["p-7", "Lake Merritt Oakland", "lake", None, m_to_lonlat(150, -50)[0], m_to_lonlat(150, -50)[1]],
                 # A known-misplaced Overture record (place_fixes): never offered.
                 ["p-4", "Ferry Building, Embarcadero", "historic_site", None, m_to_lonlat(100, 0)[0], m_to_lonlat(100, 0)[1]],
             ]
