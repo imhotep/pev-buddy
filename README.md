@@ -261,11 +261,19 @@ tap from the route.
    otherwise a mid-block destination would be walked past to the corner and
    back.
 
-   **Snapping.** A start or destination snaps to the nearest junction the
-   vehicle can leave (start) or reach (destination), skipping junctions in a
-   pocket joined to no more than `SNAP_POCKET_NODES` others for that vehicle:
-   the Sutter-Stockton garage's BikeLink lockers sit beside a stub of Stockton
-   St boxed in by streets closed to bikes, and used to be unreachable.
+   **Snapping.** A start or destination sits at the nearest point on a
+   street the vehicle may ride, partway along the block, not at the nearest
+   junction: a 34 m hop on one-way 3rd St used to become a 550 m loop around
+   the block (#51). The search starts by riding off that point in each
+   direction the street allows (one-ways only forward) and ends by riding
+   into the destination's point, so distances, times and steps count only
+   the part of each street ridden. Within `SNAP_NODE_M` (3 m) of a junction
+   the trip starts or ends at the junction, free to turn any way; a sidewalk
+   loses to its street unless it is `SNAP_SIDEWALK_SLACK_M` (15 m) nearer.
+   Streets in a pocket joined to no more than `SNAP_POCKET_NODES` others for
+   that vehicle are skipped: the Sutter-Stockton garage's BikeLink lockers sit
+   beside a stub of Stockton St boxed in by streets closed to bikes, and used
+   to be unreachable.
 
    The API also reports a per-category `segment_stats` breakdown and warnings
    for sidewalk sections, fast arterials, shared roadways and, for mopeds,

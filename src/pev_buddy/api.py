@@ -412,9 +412,9 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             raise route_error(e)
         warnings = []
         if result.start_snap_m > 50:
-            warnings.append(f"start snapped {format_distance(result.start_snap_m)} to the nearest junction")
+            warnings.append(f"start snapped {format_distance(result.start_snap_m)} to the nearest street")
         if result.end_snap_m > 50:
-            warnings.append(f"destination snapped {format_distance(result.end_snap_m)} to the nearest junction")
+            warnings.append(f"destination snapped {format_distance(result.end_snap_m)} to the nearest street")
         stats = result.segment_stats
         sidewalk = stats.get("sidewalk")
         if sidewalk and sidewalk["distance_m"]:
@@ -445,7 +445,7 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             warnings.append(
                 f"route shares the roadway with car traffic for {format_distance(shared_m)} — ride alert"
             )
-        steps = build_steps(graph, result.edge_idxs, elabel, vehicle=vehicle)
+        steps = build_steps(graph, result.edge_idxs, elabel, vehicle=vehicle, edge_parts=result.edge_parts)
         return {
             "path": result.path,
             "distance_m": round(result.distance_m, 1),
