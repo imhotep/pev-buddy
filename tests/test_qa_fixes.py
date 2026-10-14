@@ -125,3 +125,44 @@ def test_place_without_address_says_which_street_it_is_near(client):
     res = client.get("/api/search", params={"q": "Corner Kiosk"}).json()
     kiosk = next(r for r in res if r["text"] == "Corner Kiosk")
     assert kiosk["address"] == "Near 10 Side St"
+
+
+# --- #42, #43: more misplaced places, and the audit that finds them -----------
+
+
+def test_second_round_of_misplaced_places_is_not_offered(client):
+    for q in ("SFO", "Lake Merritt"):
+        names = [r["text"] for r in client.get("/api/search", params={"q": q}).json()]
+        assert not {"SFO Int'l Airport", "Lake Merritt Oakland"} & set(names), (q, names)
+
+
+def test_place_audit_lists_only_unreviewed_suspects(capsys):
+    from pev_buddy import place_audit
+
+    rows = [
+        ["a", "Lake Tahoe Oakland", "lake", None, -122.43, 37.78],  # suspect
+        ["b", "Oakland Art Association", "civic_organization", "500 Terry Francois Blvd", -122.39, 37.77],  # has an address
+        ["c", "Oakland Army Base", "military_site", None, -122.30, 37.82],  # outside the city: flagged elsewhere
+        ["d", "Lake Merritt Oakland", "lake", None, -122.43, 37.79],  # already on the reviewed list
+        ["e", "Mission Dolores Park", "park", None, -122.43, 37.76],  # names nowhere outside
+    ]
+    assert [r[0] for r in place_audit.suspects(rows)] == ["a"]
+
+
+def test_place_audit_cli(tmp_path, capsys):
+    import orjson
+    from pev_buddy import place_audit
+
+    (tmp_path / "places.json").write_bytes(orjson.dumps([["a", "Vista Point Sausalito", "park", None, -122.43, 37.79]]))
+    assert place_audit.main([str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "1 place records to review" in out and "Vista Point Sausalito" in out
+
+
+def test_every_reviewed_bad_place_says_why():
+    from pev_buddy.place_fixes import BAD_PLACES
+
+    names = [n for n, _c, _w in BAD_PLACES]
+    assert len(names) == len(set(names))
+    for name, _cat, why in BAD_PLACES:
+        assert len(why) > 20, name

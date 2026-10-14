@@ -123,8 +123,8 @@ if (IS_MOBILE) {
   });
   map.addControl(geolocateControl, "top-right");
   // The map's own location button fails silently; say why in the trip panel.
-  geolocateControl.on("error", (err) => {
-    showTripStatus(LOCATION_ERRORS[err.code] || "Could not get your location.", true);
+  geolocateControl.on("error", async (err) => {
+    showTripStatus(await locationErrorMessage(err), true);
   });
 }
 // MapLibre labels the canvas just "Map" — give assistive tech a real summary.
@@ -978,8 +978,26 @@ function settleLocation(which) {
 const LOCATION_ERRORS = {
   1: "Location permission is off for this site. Allow it in your browser's site settings, or search / tap the map instead.",
   2: "Your device couldn't find your position. Check that Location Services are on for this browser (and, on a Mac, that Wi-Fi is on), or search / tap the map instead.",
-  3: "Timed out finding your location. Try again, or search / tap the map instead.",
+  3: "Couldn't find your position in time. Check that Location Services are on for this browser (and, on a Mac, that Wi-Fi is on), or search / tap the map instead.",
 };
+// A timeout while the browser's own location prompt is still unanswered: the
+// fix is to answer it, not to check device settings.
+const LOCATION_PROMPT_PENDING =
+  "Still waiting for location permission: answer your browser's location prompt (or allow location for this site), or search / tap the map instead.";
+
+// The words for a failed lookup. A timeout asks the browser whether the
+// permission is still undecided, to say which thing to check.
+async function locationErrorMessage(err) {
+  if (err && err.code === 3 && navigator.permissions) {
+    try {
+      const p = await navigator.permissions.query({ name: "geolocation" });
+      if (p.state === "prompt") return LOCATION_PROMPT_PENDING;
+    } catch {
+      /* no Permissions API for geolocation: the general advice below */
+    }
+  }
+  return LOCATION_ERRORS[err && err.code] || "Could not get your location. Search or tap the map instead.";
+}
 
 // Fill the start or destination with the device position, reporting every
 // outcome in the page: in progress, success, and each failure mode.
@@ -1022,10 +1040,11 @@ function useMyLocation(which, { auto = false, quiet = false } = {}) {
       // where the rider is.
       if (!state.endRef || which === "end") map.flyTo({ center: [lon, lat], zoom: 14, ...FLY });
     },
-    (err) => {
+    async (err) => {
       if (stale()) return;
       done();
-      say(LOCATION_ERRORS[err.code] || "Could not get your location. Search or tap the map instead.", true);
+      const text = await locationErrorMessage(err);
+      if (!stale()) say(text, true);
     }
   );
 }
@@ -1724,7 +1743,11 @@ function endRide() {
   startMarker.setDraggable(true);
   endMarker.setDraggable(true);
   markCurrentStep();
-  // On a phone the drawer would cover the overview the ride returns to.
+  // A step picked during the ride was for looking ahead: the overview the
+  // ride returns to shows the whole route, none of it highlighted (#45).
+  clearStepHighlight();
+  // On a phone the drawer would cover that overview; on a desktop it sits
+  // beside the map, as it does next to any route, and stays.
   if (SMALL_SCREEN.matches) closeStepsDrawer(false);
   // Back to the north-up overview of the route.
   map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
