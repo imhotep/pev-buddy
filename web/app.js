@@ -1468,6 +1468,7 @@ const RIDE = Object.freeze({
   MAX_ACCURACY_M: 50, // vaguer fixes count only when off route even at their worst
   PASSED_M: 8, // a maneuver is done once the rider is this far past it
   ARRIVE_M: 20, // this close to the route's end counts as arrived
+  ARRIVE_CLEAR_MS: 10000, // the arrival stays on screen this long, then the trip clears
   FAR_PROMPT_M: 152, // ~500 ft: "In 500 feet, turn right onto…"
   NEAR_PROMPT_M: 30, // ~100 ft: "Turn right onto…"
   GPS_HEADING_MIN_MPS: 1.5, // below this the GPS course is noise
@@ -1720,6 +1721,7 @@ function loadRideRoute(route) {
   clearOffRoute();
   ride.rerouting = false;
   ride.arrived = false;
+  cancelArrivalClear();
   renderRideBanner();
   markCurrentStep();
   // A new route after arriving (e.g. a vehicle change) resumes guidance.
@@ -1735,6 +1737,7 @@ function endRide() {
   clearOffRoute();
   ride.active = false;
   ride.arrived = false;
+  cancelArrivalClear();
   ride.position = null;
   riderMarker.remove();
   if ("speechSynthesis" in window) speechSynthesis.cancel();
@@ -1850,6 +1853,37 @@ function arrive() {
   document.getElementById("ride-arrow").dataset.maneuver = "arrive";
   document.getElementById("ride-distance").textContent = "Arrived";
   document.getElementById("ride-instruction").textContent = `You've arrived at ${dest}.${walk}`;
+  document.getElementById("end-ride").textContent = "Done";
+  if (state.parkFor) {
+    // Parked near the destination: the ride is over and the walk is what's
+    // left, so the map shows just that until Done.
+    for (const id of ["pev-route", "pev-route-casing"]) if (map.getSource(id)) map.getSource(id).setData(emptyFC());
+    const g = state.parkFor;
+    const e = state.endRef;
+    const path = walk && walk.key === walkKey() ? walk.path : [];
+    fitToPath([[e.lon, e.lat], ...path, [g.lon, g.lat]], { maxZoom: 18, duration: REDUCED_MOTION ? 0 : 600 });
+  } else {
+    // Like other navigation apps: the arrival shows for a few seconds, then
+    // the trip clears by itself (Done clears it sooner).
+    arriveTimer = setTimeout(finishTrip, arriveClearMs);
+  }
+}
+
+let arriveClearMs = RIDE.ARRIVE_CLEAR_MS;
+let arriveTimer = null;
+
+function cancelArrivalClear() {
+  clearTimeout(arriveTimer);
+  arriveTimer = null;
+  document.getElementById("end-ride").textContent = "End ride";
+}
+
+// After arriving: leave ride mode and clear the trip, with the map left on
+// where the rider was going.
+function finishTrip() {
+  const goal = parkGoal();
+  resetTrip();
+  if (goal) map.easeTo({ center: [goal.lon, goal.lat], bearing: 0, ...FLY });
 }
 
 // Off route for several fixes or seconds: route again from where the rider is now.
@@ -1963,7 +1997,7 @@ exposeOverlayEdge("ride-controls", "--ride-controls-edge", "bottom");
 exposeOverlayEdge("sidebar", "--sheet-edge", "bottom"); // used by the phone layout only
 
 document.getElementById("start-ride").addEventListener("click", startRide);
-document.getElementById("end-ride").addEventListener("click", endRide);
+document.getElementById("end-ride").addEventListener("click", () => (ride.arrived ? finishTrip() : endRide()));
 document.getElementById("ride-steps").addEventListener("click", toggleStepsDrawer);
 document.getElementById("ride-recenter").addEventListener("click", () => {
   ride.followPausedUntil = 0;
