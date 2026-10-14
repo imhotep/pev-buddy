@@ -78,7 +78,9 @@ approximate one (from Wi-Fi, or a recent fix), so it gives up after about
 12 seconds at most. Setting the start another way meanwhile wins and clears
 the message. If both fail it says what to check:
 Location Services for your browser, and on a Mac, that Wi-Fi is on (a Mac
-has no GPS and locates itself by nearby networks).
+has no GPS and locates itself by nearby networks). If the browser's
+permission prompt is still waiting for an answer at that point, it asks you
+to answer it instead.
 
 **Riding with it**
 
@@ -101,8 +103,9 @@ has no GPS and locates itself by nearby networks).
    reroutes from where you are.
 5. **🔊 Voice** mutes or unmutes (remembered). **Steps** opens the list; tap a
    step to see it on the map. **Re-center** appears after you pan. **End
-   ride** returns to the route overview, and **↺ Reset trip** (under **Edit
-   trip**) clears it.
+   ride** returns to the route overview with no step highlighted (the steps
+   list closes on a phone and stays beside the map on a desktop), and
+   **↺ Reset trip** (under **Edit trip**) clears it.
 
 On a phone, with the real San Francisco data: the empty state with the start
 already at your location, tapping the map in Dolores Park, a scooter route
@@ -325,7 +328,10 @@ tap from the route.
      browser from the pins already loaded, then the walk from it fetched
      from `/api/walk` and drawn dashed (a straight line if that fails).
    - **Steps:** a turn-by-turn panel where tapping a step highlights it on the
-     map, during a ride too.
+     map, during a ride too. It opens beside the map with a route on desktop
+     and stays shut on phones; a ride starts with it shut everywhere, and End
+     ride clears any highlighted step and closes the list on phones (on a
+     desktop it stays as you left it).
    - **Ride mode:** the rider as a red navigation arrow turned to the heading,
      GPS fixes snapped to the route, a next-maneuver banner and
      voice prompts that advance on their own, rerouting after three fixes or
