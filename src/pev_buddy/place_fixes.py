@@ -118,3 +118,33 @@ _BAD = {(fold(name), cat) for name, cat, _why in BAD_PLACES}
 def is_bad_place(name: str, category: str | None) -> bool:
     n = fold(name)
     return (n, None) in _BAD or (n, category) in _BAD
+
+
+# Well-known places with no record of their own in the extract: searching
+# "Union Square" otherwise tops out at a shop named after it (issue #49).
+# [id, name, category, address, lon, lat], as in places.json; checked by hand.
+ADDED_PLACES: tuple[list, ...] = (
+    ["pev-union-square", "Union Square", "plaza", None, -122.40752, 37.78799],
+    ["pev-city-hall", "City Hall", "landmark_and_historical_building", "1 Dr Carlton B Goodlett Pl", -122.41924, 37.77927],
+    ["pev-portsmouth-square", "Portsmouth Square", "park", None, -122.40567, 37.79486],
+    ["pev-painted-ladies", "Painted Ladies", "landmark_and_historical_building", "710 Steiner St", -122.43275, 37.77617],
+)
+
+# Misspelled names in the extract, shown corrected (issue #54).
+NAME_FIXES: dict[str, str] = {
+    "Oakland-San Francico Bay Bridge": "Oakland-San Francisco Bay Bridge",
+}
+
+
+def fix_places(rows: list[list]) -> list[list]:
+    """The extract's rows as search should see them: hand-added places first
+    (so they lead a tie with a same-named business), known-bad records gone,
+    misspelled names corrected."""
+    out = [list(r) for r in ADDED_PLACES]
+    for r in rows:
+        if is_bad_place(r[1], r[2]):
+            continue
+        if r[1] in NAME_FIXES:
+            r = [r[0], NAME_FIXES[r[1]], *r[2:]]
+        out.append(r)
+    return out

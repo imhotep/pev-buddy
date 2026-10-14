@@ -330,7 +330,9 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         out: list[dict] = []
         seen: set = set()
         for it in items:
-            key = (it["kind"], it["text"].casefold())
+            # Same name, different kind of place (the square and the shop
+            # named after it): both stay.
+            key = (it["kind"], it["text"].casefold(), it["category"])
             if key in seen:
                 continue
             seen.add(key)
@@ -425,12 +427,17 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             warnings.append(
                 f"route uses {format_distance(arterial['distance_m'])} of fast arterial street{mph} — share the road with care"
             )
-        if vehicle == "moped":
-            bike_lane = stats.get("bike_lane")
-            if bike_lane and bike_lane["distance_m"]:
-                warnings.append(
-                    "route uses a dedicated bike lane that is usually reserved for bicycles"
-                )
+        if vehicle == "moped" and result.bike_paths:
+            # Only off-street bike paths: a street that is just signed as a
+            # bike route (sharrows, a painted lane) is an ordinary street to a
+            # moped (#50).
+            path_m = sum(p["distance_m"] for p in result.bike_paths)
+            names = list(dict.fromkeys(p["name"] for p in result.bike_paths if p["name"]))
+            near = list(dict.fromkeys(p["near"] for p in result.bike_paths if not p["name"] and p["near"]))
+            where = f" on {', '.join(names[:2])}" if names else f" off {', '.join(near[:2])}" if near else ""
+            warnings.append(
+                f"route uses {format_distance(path_m)} of bike path{where}, which is usually reserved for bicycles"
+            )
         shared_m = sum(
             stats.get(c, {}).get("distance_m", 0.0) for c in ("shared", "arterial")
         )

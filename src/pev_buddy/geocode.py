@@ -13,7 +13,17 @@ import orjson
 
 from . import config, geo
 
-_NUM_RE = re.compile(r"(\d{1,6})[A-Z0-9]*")
+# A house number: digits, optionally one letter ("123A"); never an ordinal
+# street name ("3rd", "21st"), which a word boundary rules out.
+_NUM_RE = re.compile(r"\b(\d{1,6})[A-Za-z]?\b")
+# Overture spells some ordinal streets with a leading zero ("03RD ST" beside
+# "3RD ST"); riders type, and should read, "3rd St".
+_ZERO_PAD_RE = re.compile(r"\b0+(?=\d)")
+
+
+def normalize_street(street: str) -> str:
+    """ "03RD ST" -> "3RD ST" (the same street under its usual name)."""
+    return _ZERO_PAD_RE.sub("", street)
 
 REVERSE_MAX_M = 150.0  # farther than this from any address, a point has no "near" label
 REVERSE_EXACT_M = 25.0  # within this, a point is labeled as the address itself
@@ -130,8 +140,12 @@ class Geocoder:
             z = np.load(path)
             arrays = {k: z[k] for k in z.files}
             meta = orjson.loads(path.with_name(path.stem + "_meta.json").read_bytes())
-        self.street_names: list[str] = meta["streets"]
-        self.street_index: dict[str, int] = {s: i for i, s in enumerate(self.street_names)}
+        # One name can cover several buckets once "03RD ST" reads "3RD ST".
+        self.street_names: list[str] = [normalize_street(s) for s in meta["streets"]]
+        self.street_index: dict[str, list[int]] = {}
+        for i, s in enumerate(self.street_names):
+            self.street_index.setdefault(s, []).append(i)
+        self._unique_streets: list[str] = list(self.street_index)
         self.numbers: list = meta["numbers"]
         self.units: list = meta["units"]
         self.postcodes: list = meta["postcodes"]
@@ -144,13 +158,13 @@ class Geocoder:
         self.lat: np.ndarray = arrays["lat"]
 
     def _candidates(self, street_query: str) -> list[str]:
-        q = street_query.upper()
+        q = normalize_street(street_query.upper())
         if q in self.street_index:
             return [q]
-        exact_prefix = [s for s in self.street_names if s.startswith(q)]
+        exact_prefix = [s for s in self._unique_streets if s.startswith(q)]
         if exact_prefix:
             return exact_prefix[: self.max_results * 3]
-        close = get_close_matches(q, self.street_names, n=self.max_results * 3, cutoff=0.75)
+        close = get_close_matches(q, self._unique_streets, n=self.max_results * 3, cutoff=0.75)
         return close
 
     def search(self, query: str, limit: int | None = None) -> list[dict]:
@@ -168,19 +182,25 @@ class Geocoder:
 
         results: list[dict] = []
         for street in self._candidates(street_part):
-            si = self.street_index[street]
-            lo, hi = int(self.row_offsets[si]), int(self.row_offsets[si + 1])
-            if number:
-                code = self.number_of.get(number)
-                rows: list[int] = []
-                if code is not None:
-                    hits = np.nonzero(self.number_code[lo:hi] == code)[0]
-                    rows = [lo + int(j) for j in hits[: max(1, limit // 3)]]
-                for j in rows:
-                    results.append(self._item(street, j, score=100))
-            else:
-                for j in range(lo, min(hi, lo + max(1, limit // 3))):
-                    results.append(self._item(street, j, score=60))
+            per_street = max(1, limit // 3)
+            found = 0
+            for si in self.street_index[street]:
+                lo, hi = int(self.row_offsets[si]), int(self.row_offsets[si + 1])
+                if number:
+                    code = self.number_of.get(number)
+                    rows: list[int] = []
+                    if code is not None:
+                        hits = np.nonzero(self.number_code[lo:hi] == code)[0]
+                        rows = [lo + int(j) for j in hits[: per_street - found]]
+                    for j in rows:
+                        results.append(self._item(street, j, score=100))
+                else:
+                    rows = range(lo, min(hi, lo + per_street - found))
+                    for j in rows:
+                        results.append(self._item(street, j, score=60))
+                found += len(rows)
+                if found >= per_street:
+                    break
             if len(results) >= limit * 2:
                 break
 

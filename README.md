@@ -109,7 +109,8 @@ to answer it instead.
    step to see it on the map. **Re-center** appears after you pan. **End
    ride** returns to the route overview with no step highlighted (the steps
    list closes on a phone and stays beside the map on a desktop), and
-   **↺ Reset trip** (under **Edit trip**) clears it.
+   **↺ Reset trip** (under **Edit trip**) clears it and flies back to the
+   city view.
 
 On a phone, with the real San Francisco data: the empty state with the start
 already at your location, tapping the map in Dolores Park, a scooter route
@@ -266,7 +267,10 @@ tap from the route.
 
    The API also reports a per-category `segment_stats` breakdown and warnings
    for sidewalk sections, fast arterials, shared roadways and, for mopeds,
-   dedicated bike lanes.
+   off-street bike paths (cycleway, path or track), with their length and
+   name, or the street an unnamed one leaves from. A street that is only
+   signed as a bike route is an ordinary street to a moped and isn't warned
+   about.
 
 3. **API** (FastAPI) serves the static files plus `/api/route` (takes a
    `vehicle`; blocks non-street-legal ones), `/api/vehicles` (vehicle types +
@@ -274,7 +278,10 @@ tap from the route.
    ranked), `/api/reverse` (nearest-address label for a map-picked point),
    `/api/walk` (walking directions), `/api/geocode`, `/api/stations[/nearest]`
    and `/api/bikelink[/nearest]`. Search ignores case and accents, so "Café
-   Encore" finds "Cafe Encore" (and the other way round). Places across the
+   Encore" finds "Cafe Encore" (and the other way round). Overture files some
+   numbered streets with a leading zero ("03RD ST" beside "3RD ST"); the
+   geocoder reads both as one street, so "360 3rd St" is found and a map tap
+   reads "360 3rd St", not "03rd". Places across the
    Bay are in the data (the extract's box is wider than the city): search
    marks them `in_service_area: false` and ranks them last, the UI labels them
    "Outside service area" and won't pick them, and a route to or from outside
@@ -303,7 +310,11 @@ tap from the route.
    landmarks. After a data sync, `python -m pev_buddy.place_audit` prints the
    likely candidates (no address, inside the city, named after somewhere
    outside it) for review; it doesn't drop them itself, since some are right
-   (Muni's "San Jose and Ocean station" is on San Jose Avenue in SF).
+   (Muni's "San Jose and Ocean station" is on San Jose Avenue in SF). The
+   same file adds a few landmarks the extract has no record of (Union
+   Square, City Hall, Portsmouth Square, the Painted Ladies), listed ahead of
+   businesses named after them, and corrects misspelled names ("Oakland-San
+   Francico Bay Bridge").
 
 4. **UI** is a dependency-free vanilla-JS + MapLibre GL single page,
    installable as a PWA (`web/`: `app.js`, `debug.js`, `style.css`, `sw.js`).
