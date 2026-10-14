@@ -286,3 +286,57 @@ def test_added_places_and_name_fixes():
     # The square comes before the shop named after it.
     assert names.index("Union Square") < [i for i, r in enumerate(fixed) if r[0] == "o-2"][0]
     assert rows[0][1] == "Oakland-San Francico Bay Bridge", "the input rows are left alone"
+
+
+# --- v61 QA pass: #56, #58 --------------------------------------------------
+
+
+def test_fort_mason_goes_to_fort_mason():
+    rows = [
+        ["o-1", "Fort Mason", "historic_site", None, -122.40992, 37.80599],  # North Beach
+        ["o-2", "Fort Mason Chapel", "event_or_party_service", "Pope Rd", -122.42738, 37.8058],
+    ]
+    fixed = [r for r in place_fixes.fix_places(rows) if r[1] == "Fort Mason"]
+    assert len(fixed) == 1 and fixed[0][0] == "pev-fort-mason"
+    assert fixed[0][4] == pytest.approx(-122.4315, abs=0.002)
+
+
+def test_place_audit_finds_a_record_far_from_its_namesakes():
+    from pev_buddy import place_audit
+
+    cluster = [
+        ["c1", "Test Fort Center", "event_venue", "2 Marina Blvd", -122.4312, 37.8061],
+        ["c2", "Test Fort Chapel", "church", "Pope Rd", -122.4274, 37.8058],
+        ["c3", "Test Fort Garden", "park", "Pope Rd", -122.4280, 37.8059],
+    ]
+    chain = [[f"k{i}", f"Test Chain {i}", "cafe", f"{i} Main St", -122.40 - i * 0.02, 37.76 + i * 0.01] for i in range(4)]
+    rows = cluster + chain + [
+        ["far", "Test Fort", "historic_site", None, -122.4099, 37.8060],  # 1.8 km east of its cluster
+        ["near", "Test Fort Pier", "pier", None, -122.4300, 37.8070],  # close by: fine
+        ["chain", "Test Chain", "cafe", None, -122.30, 37.70],  # namesakes spread out: no cluster
+    ]
+    found = {r[0]: d for r, d in place_audit.far_from_namesakes(rows)}
+    assert list(found) == ["far"] and 1500 < found["far"] < 2100
+
+
+def test_one_result_per_address_however_many_units(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from pev_buddy.geocode import Geocoder
+
+    table = pa.table(
+        {
+            "street": ["01ST ST", "01ST ST", "01ST ST", "MARKET ST"],
+            "number": ["100", "100", "100", "1"],
+            "unit": ["100", "2700", None, "PH 2"],
+            "postcode": ["94105"] * 4,
+            "lon": [-122.3976, -122.3976, -122.3976, -122.3946],
+            "lat": [37.7895, 37.7895, 37.7895, 37.7942],
+        }
+    )
+    pq.write_table(table, tmp_path / "a.parquet")
+    g = Geocoder(tmp_path / "a.parquet")
+    assert [r["text"] for r in g.search("100 1st St")] == ["100 1ST ST"]
+    # A lone unit record keeps its unit.
+    assert [r["text"] for r in g.search("1 Market St")] == ["1 MARKET ST (PH 2)"]

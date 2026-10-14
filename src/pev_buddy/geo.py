@@ -87,9 +87,11 @@ FT_PER_M = 3.28084
 
 
 def format_distance(meters: float) -> str:
-    """Imperial display distance, matching the web UI: feet (to the nearest
-    10) under a tenth of a mile, miles to one decimal above it — so a short
-    step never reads "0.0 mi"."""
+    """Imperial display distance, matching the web UI: feet under a tenth of a
+    mile (to the nearest 5 under 100 ft, else the nearest 10), miles to one
+    decimal above it — so a short step never reads "0.0 mi"."""
     if meters < 0.1 * M_PER_MILE:
-        return f"{round(meters * FT_PER_M / 10) * 10:.0f} ft"
+        ft = meters * FT_PER_M
+        step = 5 if ft < 97.5 else 10
+        return f"{round(ft / step) * step:.0f} ft"
     return f"{meters / M_PER_MILE:.1f} mi"

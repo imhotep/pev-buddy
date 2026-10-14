@@ -1531,7 +1531,9 @@ def test_timeout_with_the_prompt_unanswered_says_to_answer_it(open_app):
     page.click("#use-location")
     page.wait_for_selector("#trip-status.error")
     text = page.text_content("#trip-status")
-    assert "answer your browser's location prompt" in text and "Timed out" not in text
+    assert "answer your browser's location prompt" in text.lower() and "Timed out" not in text
+    # Chrome can block without asking and still report "prompt" (#57).
+    assert "if it didn't ask, it may have blocked location for this site" in text
 
 
 def test_timeout_with_location_allowed_says_what_to_check(open_app):
@@ -1625,3 +1627,36 @@ def test_debug_route_readout_follows_the_route(ride_page):
         "() => document.querySelector('#pev-debug-hud .pev-dbg-out').textContent.includes('\"vehicle\": \"ebike_c3\"')"
     )
     page.evaluate("() => pev.hud(false)")
+
+
+# ------------------------------------------------------------ v61 QA pass (#58)
+
+
+def test_first_step_shows_its_distance(page):
+    route_via_ui(page)
+    first = page.text_content("#steps li:first-child .dist")
+    assert first.endswith(" ft") or first.endswith(" mi"), first
+    assert page.text_content("#steps li.arrive .dist") == ""
+
+
+def test_no_parking_tiles_until_there_is_a_route(page):
+    elon, elat = m_to_lonlat(190, -100)
+    page.evaluate(f"() => setEnd({{ kind: 'coords', lat: {elat}, lon: {elon}, label: 'Cafe' }})")
+    page.wait_for_timeout(300)
+    assert not page.is_visible("#park-near")
+    slon, slat = m_to_lonlat(0, -100)
+    page.evaluate(f"() => setStart({{ kind: 'coords', lat: {slat}, lon: {slon}, label: 'Test start' }})")
+    page.wait_for_function("() => state.route")
+    assert page.is_visible("#park-near")
+
+
+def test_minimized_debug_panel_can_still_be_closed(page):
+    page.evaluate("() => pev.hud(true)")
+    page.click("#pev-debug-hud .pev-dbg-min")
+    assert page.is_visible("#pev-debug-hud .pev-dbg-close")
+    page.click("#pev-debug-hud .pev-dbg-close")
+    assert not page.is_visible("#pev-debug-hud")
+
+
+def test_summary_and_steps_round_short_distances_alike(page):
+    assert page.evaluate("() => [fmtDist(22.8), fmtDist(29.0), fmtDist(29.8), fmtDist(60)]") == ["75 ft", "95 ft", "100 ft", "200 ft"]

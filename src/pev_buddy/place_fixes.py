@@ -105,6 +105,18 @@ BAD_PLACES: tuple[tuple[str, str | None, str], ...] = (
         "the restaurant is on the Sausalito waterfront; this record is near Union Square (37.789, -122.409)",
     ),
     (
+        "Fort Mason",
+        "historic_site",
+        "placed in North Beach (37.806, -122.410), 1.8 km east of Fort Mason; the Fort Mason Center, "
+        "Chapel and other Fort Mason records are where it is (issue #56)",
+    ),
+    (
+        "Yerba Buena Gardens",
+        "historic_site",
+        "placed near 9th and Howard (37.777, -122.414), 1.2 km from the gardens at 3rd and Mission, "
+        "where the park record of the same name is (found by place_audit, #56)",
+    ),
+    (
         "SFO International Airport",
         None,
         "both records are misplaced (Brisbane 37.666, -122.425; Excelsior 37.722, -122.447); "
@@ -127,6 +139,7 @@ ADDED_PLACES: tuple[list, ...] = (
     ["pev-union-square", "Union Square", "plaza", None, -122.40752, 37.78799],
     ["pev-city-hall", "City Hall", "landmark_and_historical_building", "1 Dr Carlton B Goodlett Pl", -122.41924, 37.77927],
     ["pev-portsmouth-square", "Portsmouth Square", "park", None, -122.40567, 37.79486],
+    ["pev-fort-mason", "Fort Mason", "park", "2 Marina Blvd", -122.43150, 37.80610],
     ["pev-painted-ladies", "Painted Ladies", "landmark_and_historical_building", "710 Steiner St", -122.43275, 37.77617],
 )
 

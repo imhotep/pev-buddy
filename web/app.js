@@ -203,8 +203,13 @@ loadVehicleTypes();
 // feet under a tenth of a mile, so a short step never reads "0.0 mi".
 const M_PER_MILE = 1609.344;
 const FT_PER_M = 3.28084;
+// Feet to the nearest 5 under 100 ft, else the nearest 10 (as geo.format_distance).
 function fmtDist(m) {
-  if (m < 0.1 * M_PER_MILE) return `${Math.round((m * FT_PER_M) / 10) * 10} ft`;
+  if (m < 0.1 * M_PER_MILE) {
+    const ft = m * FT_PER_M;
+    const step = ft < 97.5 ? 5 : 10;
+    return `${Math.round(ft / step) * step} ft`;
+  }
   return `${(m / M_PER_MILE).toFixed(1)} mi`;
 }
 const fmtMin = (s) => `${Math.max(1, Math.round(s / 60))} min`;
@@ -847,7 +852,10 @@ function syncParking() {
   const goal = parkGoal();
   // No chips without a destination, or when the destination already is a
   // charger / locker / rack the rider picked.
-  const show = !!goal && !goal.poi && (!state.noRide || !!state.parkFor);
+  // Only beside a route (#58: not while the start is still unset), and not
+  // when there is nothing to ride; once a spot is picked, its tile stays so
+  // it can be tapped off.
+  const show = !!goal && !goal.poi && (!!state.parkFor || (state.routeShown && !state.noRide));
   box.classList.toggle("hidden", !show);
   chips.innerHTML = "";
   if (show) {
@@ -989,10 +997,12 @@ const LOCATION_ERRORS = {
   2: "Your device couldn't find your position. Check that Location Services are on for this browser (and, on a Mac, that Wi-Fi is on), or search / tap the map instead.",
   3: "Couldn't find your position in time. Check that Location Services are on for this browser (and, on a Mac, that Wi-Fi is on), or search / tap the map instead.",
 };
-// A timeout while the browser's own location prompt is still unanswered: the
-// fix is to answer it, not to check device settings.
+// A timeout while the browser still reports location as not yet asked: either
+// its prompt is unanswered, or it blocked the site without asking (Chrome does
+// after a prompt is dismissed a few times, and still reports "prompt", #57).
+// The page can't tell which, so the message covers both.
 const LOCATION_PROMPT_PENDING =
-  "Still waiting for location permission: answer your browser's location prompt (or allow location for this site), or search / tap the map instead.";
+  "Still waiting for location permission. Answer your browser's location prompt; if it didn't ask, it may have blocked location for this site: allow it in the site settings (the icon left of the address), or search / tap the map instead.";
 
 // The words for a failed lookup. A timeout asks the browser whether the
 // permission is still undecided, to say which thing to check.
@@ -2155,8 +2165,9 @@ function renderRoute(data) {
     }
     const dist = document.createElement("span");
     dist.className = "dist";
-    // Depart/arrive and zero-length legs show no distance rather than "0 ft".
-    dist.textContent = s.maneuver === "depart" || s.maneuver === "arrive" || !s.distance_m ? "" : fmtDist(s.distance_m);
+    // The arrival and zero-length legs show no distance rather than "0 ft";
+    // the first step does: it's the ride to the first turn (#58).
+    dist.textContent = s.maneuver === "arrive" || !s.distance_m ? "" : fmtDist(s.distance_m);
     li.append(idx, txt, dist);
     li.addEventListener("click", () => selectStep(li, s));
     li.tabIndex = 0;

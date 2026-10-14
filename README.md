@@ -78,9 +78,11 @@ approximate one (from Wi-Fi, or a recent fix), so it gives up after about
 12 seconds at most. Setting the start another way meanwhile wins and clears
 the message. If both fail it says what to check:
 Location Services for your browser, and on a Mac, that Wi-Fi is on (a Mac
-has no GPS and locates itself by nearby networks). If the browser's
-permission prompt is still waiting for an answer at that point, it asks you
-to answer it instead.
+has no GPS and locates itself by nearby networks). If the browser
+still reports location as not yet asked at that point, it asks you to answer
+the prompt, or, if none appeared, to allow location in the site settings
+(Chrome blocks a site without asking after its prompt is dismissed a few
+times).
 
 **Riding with it**
 
@@ -281,7 +283,8 @@ tap from the route.
    Encore" finds "Cafe Encore" (and the other way round). Overture files some
    numbered streets with a leading zero ("03RD ST" beside "3RD ST"); the
    geocoder reads both as one street, so "360 3rd St" is found and a map tap
-   reads "360 3rd St", not "03rd". Places across the
+   reads "360 3rd St", not "03rd". A building's unit records come back as one
+   result per address. Places across the
    Bay are in the data (the extract's box is wider than the city): search
    marks them `in_service_area: false` and ranks them last, the UI labels them
    "Outside service area" and won't pick them, and a route to or from outside
@@ -304,15 +307,18 @@ tap from the route.
    place is (the "Ferry Building, Embarcadero" historic site in Bernal
    Heights, Oakland's Coliseum and Oracle Arena in SoMa, SFO inside the
    city, Lake Merritt on Fillmore St). `src/pev_buddy/place_fixes.py` lists
-   them (18 entries), each checked by hand with the reason, and search never
+   them (20 entries), each checked by hand with the reason, and search never
    offers them. A general rule was tried and rejected: a place having an
    address doesn't make its coordinates right, so it dropped correct
    landmarks. After a data sync, `python -m pev_buddy.place_audit` prints the
-   likely candidates (no address, inside the city, named after somewhere
-   outside it) for review; it doesn't drop them itself, since some are right
+   likely candidates for review: records with no address inside the city
+   that are named after somewhere outside it, or that sit over a kilometer
+   from the tight cluster of records named after them (how it found the
+   "Fort Mason" and "Yerba Buena Gardens" historic sites in the wrong
+   neighborhoods). It doesn't drop them itself, since some are right
    (Muni's "San Jose and Ocean station" is on San Jose Avenue in SF). The
    same file adds a few landmarks the extract has no record of (Union
-   Square, City Hall, Portsmouth Square, the Painted Ladies), listed ahead of
+   Square, City Hall, Fort Mason, Portsmouth Square, the Painted Ladies), listed ahead of
    businesses named after them, and corrects misspelled names ("Oakland-San
    Francico Bay Bridge").
 
