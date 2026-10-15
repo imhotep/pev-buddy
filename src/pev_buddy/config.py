@@ -130,15 +130,13 @@ VEHICLE_TYPES: dict[str, VehicleType] = {
     "euc": VehicleType(
         "euc",
         "Electric unicycle (EUC)",
-        "Legal gray area: EUCs have no specific CA vehicle class. Keeps to bike paths and lanes wherever "
-        "they go; streets with cars (25 mph or less) only where there's no other way, shown in red.",
+        "Legal gray area: EUCs have no specific CA vehicle class. Routed conservatively. Check local rules.",
         15,
         True,
-        "D",
+        "A",
         25,
         True,
         True,
-        avoid_traffic=True,
     ),
     "ebike_c1": VehicleType(
         "ebike_c1", "Class 1 e-bike", "Pedal assist only, no throttle. Up to 20 mph.", 20, True, "A", None
@@ -230,13 +228,14 @@ SHARED_MAX_MPH = 28.0
 
 # Cost profiles: multipliers per (profile, category); edge cost =
 # length_m * multiplier. Vehicle types map onto profiles:
-#   A — e-scooter, Class 1/2 e-bikes (conservative)
+#   A — e-scooter, EUC, Class 1/2 e-bikes (conservative)
 #   B — Class 3 e-bike (comfortable on shared streets and arterials)
 #   C — moped (street-legal at speed; dedicated bike lanes discouraged)
-#   D — e-skateboard / Onewheel, EUC: slow and small-wheeled, so riding in
+#   D — e-skateboard / Onewheel: slow and small-wheeled, so riding in
 #       traffic is the danger. Bike paths are cheapest, painted lanes next;
 #       every street with cars costs several times its length, so a route
-#       goes well out of its way to stay on bikeways (VehicleType.avoid_traffic)
+#       goes well out of its way to stay on bikeways (VehicleType.avoid_traffic).
+#       EUCs stay on A: some now reach 60 mph.
 # Categories:
 #   bike_path     off the street or separated from cars: Overture
 #                 cycleway/path/track, SFMTA Class I paths and Class IV
@@ -272,7 +271,7 @@ MIXED_TRAFFIC = frozenset({"quiet", "shared", "arterial"})
 # + steep_descent_m * descent              likewise for a descent steeper than
 #                                          STEEP_DESCENT_GRADE (braking on small
 #                                          wheels)
-# Profile A (scooters, boards, EUCs, Class 1/2 e-bikes) has small motors and
+# Profiles A and D (scooters, EUCs, boards, Class 1/2 e-bikes) have small motors and
 # 15-20 mph caps: SF's 15-30% grades stall them or crawl, so hills weigh most.
 # Mopeds barely notice. A 100 m block at 20% costs an e-scooter ~1,700 m.
 STEEP_GRADE = 0.08

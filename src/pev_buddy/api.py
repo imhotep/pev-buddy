@@ -443,7 +443,7 @@ def create_app(data_dir: str | None = None) -> FastAPI:
             stats.get(c, {}).get("distance_m", 0.0) for c in ("shared", "arterial")
         )
         if config.VEHICLE_TYPES[vehicle].avoid_traffic:
-            # Boards and EUCs keep to bikeways; any street with cars left on
+            # Boards keep to bikeways; any street with cars left on
             # the route is one with no bikeway around it, marked on the map.
             if result.traffic_m >= 1.0:
                 warnings.append(

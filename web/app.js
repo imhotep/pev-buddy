@@ -42,7 +42,7 @@ map.addControl(new maplibregl.NavigationControl(), "top-right");
 // apart from the orange of the route and the destination pin (they used to
 // share one amber, and a charger read as a destination).
 const PIN_COLORS = { charger: "#fde047", locker: "#4da3ff", rack: "#b48cff", moto: "#f472b6" };
-// Route stretches in car traffic, for boards and EUCs (vehicle avoid_traffic).
+// Route stretches in car traffic, for boards (vehicle avoid_traffic).
 const TRAFFIC_COLOR = "#ff5a5f";
 
 // Map legend: what each color means. Open on desktop, folded to a "Key"
@@ -179,7 +179,7 @@ async function loadVehicleTypes() {
   syncVehicleDesc();
 }
 
-// Boards and EUCs: routed to keep out of car traffic, with what's left of it
+// Boards: routed to keep out of car traffic, with what's left of it
 // marked on the route (server: VehicleType.avoid_traffic).
 function avoidsTraffic() {
   const v = vehicleTypes.find((x) => x.id === state.vehicle);
@@ -327,7 +327,7 @@ map.on("load", async () => {
     source: "pev-route",
     paint: { "line-color": "#ffb02e", "line-width": 5.5, "line-opacity": 0.98 },
   });
-  // Boards and EUCs: the stretches of the route with cars, over the route.
+  // Boards: the stretches of the route with cars, over the route.
   map.addSource("pev-route-traffic", { type: "geojson", data: emptyFC() });
   map.addLayer({
     id: "pev-route-traffic",

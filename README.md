@@ -22,8 +22,8 @@ hands-free: a big next-turn banner, voice prompts, and automatic rerouting.
   of 25 mph or less (or bike lanes), mopeds follow motor-vehicle rules. Quiet
   streets and bike lanes are preferred, busy ones cost more, freeways are
   never used.
-- **Keeps boards and unicycles out of traffic.** Riding beside cars on a
-  board or an EUC is the danger, so for those the route sticks to bike paths
+- **Keeps boards out of traffic.** Riding beside cars on an e-skateboard or
+  a Onewheel is the danger, so for those the route sticks to bike paths
   and lanes (SFMTA's own network, shown in green on the map) wherever they
   go, accepting a longer ride, and uses a street with cars (25 mph or less)
   only where there's no other way. Those stretches are drawn in red and
@@ -212,7 +212,7 @@ tap from the route.
    |---|---|---|---|
    | `scooter` (default) | E-scooter | roads ≤ 25 mph or in bike lanes | A |
    | `emb` | E-skateboard / Onewheel | roads ≤ 25 mph or on bikeways (the law allows under 35 mph; kept lower to stay out of traffic) | D |
-   | `euc` | Electric unicycle | same as `emb` | D |
+   | `euc` | Electric unicycle | same as `scooter` (conservative; some EUCs now reach 60 mph, so they aren't held to bikeways like boards) | A |
    | `ebike_c1` / `ebike_c2` | Class 1/2 e-bike | no road-speed restriction | A |
    | `ebike_c3` | Class 3 e-bike | no road-speed restriction | B |
    | `moped` | Moped | motor-vehicle rules (motorcycle access mode) | C |
@@ -239,7 +239,7 @@ tap from the route.
    Overture's bicycle flag is ignored: it also marks signed routes with no
    lane (Cayuga Ave). Without `bikeways.geojson` the flag still marks lanes.
 
-   **Out of traffic (profile D).** Boards and EUCs (`avoid_traffic`) price
+   **Out of traffic (profile D).** E-skateboards and Onewheels (`avoid_traffic`) price
    bike paths at 0.8×, painted lanes 1.4× and living streets 1.3×, but quiet
    streets 3×, shared 5× and arterials 10×, so a route goes well out of its
    way to stay on bikeways. On 60 random SF trips this took the median

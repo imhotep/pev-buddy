@@ -1,5 +1,5 @@
 """SFMTA bikeways matched onto the road graph, and the avoid-traffic routing
-for boards and EUCs (profile D)."""
+for e-boards and Onewheels (profile D)."""
 
 import pytest
 
@@ -75,7 +75,7 @@ def test_with_sfmta_data_overtures_bicycle_flag_no_longer_makes_a_lane():
     assert set(_cats(_graph(feats, []), "s-side1").values()) == {"shared"}  # SFMTA: none there
 
 
-# --- profile D: boards and EUCs keep out of traffic --------------------------
+# --- profile D: boards keep out of traffic -----------------------------------
 
 # A to B: 300 m straight down a busy street, or 500 m round by a park path.
 DETOUR_NODES = {"A": (0, 0), "B": (300, 0), "C": (0, -100), "D": (300, -100)}
@@ -97,8 +97,9 @@ def test_boards_take_the_path_round_where_scooters_take_the_street():
     board = find_route(g, *a, *b, vehicle="emb")
     assert board.distance_m == pytest.approx(500, abs=2)
     assert board.traffic_m == pytest.approx(0, abs=0.1) and board.traffic_paths == []
+    # EUCs (some now good for 60 mph) route like e-scooters
     euc = find_route(g, *a, *b, vehicle="euc")
-    assert euc.distance_m == pytest.approx(500, abs=2)
+    assert euc.distance_m == pytest.approx(300, abs=2)
     scooter = find_route(g, *a, *b, vehicle="scooter")
     assert scooter.distance_m == pytest.approx(300, abs=2)
     assert scooter.traffic_m == pytest.approx(300, abs=2) and len(scooter.traffic_paths) == 1
@@ -138,5 +139,5 @@ def test_api_reports_traffic_for_boards(synth_data_dir):
     assert board["traffic_m"] == pytest.approx(200, abs=2) and len(board["traffic_paths"]) == 1
     assert "no bike path or lane for 0.1 mi: those stretches are with car traffic (red on the map)" in board["warnings"]
     assert not any("no bike path or lane" in w for w in scooter["warnings"])
-    assert vehicles["emb"]["avoid_traffic"] and vehicles["euc"]["avoid_traffic"]
-    assert not vehicles["scooter"]["avoid_traffic"]
+    assert vehicles["emb"]["avoid_traffic"]
+    assert not vehicles["scooter"]["avoid_traffic"] and not vehicles["euc"]["avoid_traffic"]

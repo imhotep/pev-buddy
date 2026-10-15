@@ -32,8 +32,8 @@ def test_vehicle_config_data():
     for vid in ("scooter", "emb", "euc", "ebike_c1", "ebike_c2", "ebike_c3", "moped"):
         assert config.VEHICLE_TYPES[vid].routable is True
     assert config.DEFAULT_VEHICLE == "scooter"
-    # EUCs and boards have the e-scooter's road access, but keep out of
-    # traffic (profile D)
+    # EUCs and boards have the e-scooter's road access; boards also keep out
+    # of traffic (profile D), EUCs route like e-scooters
     scooter = config.VEHICLE_TYPES["scooter"]
     for vid in ("euc", "emb"):
         v = config.VEHICLE_TYPES[vid]
@@ -42,8 +42,9 @@ def test_vehicle_config_data():
             scooter.road_max_inclusive,
             scooter.bike_lane_exempt,
         )
-        assert v.profile == "D" and v.avoid_traffic
-    assert scooter.profile == "A" and not scooter.avoid_traffic
+    assert config.VEHICLE_TYPES["emb"].profile == "D" and config.VEHICLE_TYPES["emb"].avoid_traffic
+    for vid in ("euc", "scooter"):
+        assert config.VEHICLE_TYPES[vid].profile == "A" and not config.VEHICLE_TYPES[vid].avoid_traffic
     # road-access rules live in config as data
     assert scooter.road_max_mph == 25
     for vid in ("ebike_c1", "ebike_c2", "ebike_c3", "moped"):
