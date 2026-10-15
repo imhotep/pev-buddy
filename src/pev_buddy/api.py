@@ -188,6 +188,7 @@ def create_app(data_dir: str | None = None) -> FastAPI:
                     "description": config.VEHICLE_TYPES[vid].description,
                     "routable": config.VEHICLE_TYPES[vid].routable,
                     "speed_limit_mph": config.VEHICLE_TYPES[vid].speed_limit_mph,
+                    "avoid_traffic": config.VEHICLE_TYPES[vid].avoid_traffic,
                 }
                 for vid in config.VEHICLE_ORDER
             ],
@@ -441,7 +442,15 @@ def create_app(data_dir: str | None = None) -> FastAPI:
         shared_m = sum(
             stats.get(c, {}).get("distance_m", 0.0) for c in ("shared", "arterial")
         )
-        if result.distance_m and shared_m > max(200.0, 0.3 * result.distance_m):
+        if config.VEHICLE_TYPES[vehicle].avoid_traffic:
+            # Boards and EUCs keep to bikeways; any street with cars left on
+            # the route is one with no bikeway around it, marked on the map.
+            if result.traffic_m >= 1.0:
+                warnings.append(
+                    f"no bike path or lane for {format_distance(result.traffic_m)}: those stretches are with "
+                    "car traffic (red on the map)"
+                )
+        elif result.distance_m and shared_m > max(200.0, 0.3 * result.distance_m):
             warnings.append(
                 f"route shares the roadway with car traffic for {format_distance(shared_m)} — ride alert"
             )
@@ -474,6 +483,8 @@ def create_app(data_dir: str | None = None) -> FastAPI:
                 c: {"distance_m": round(v["distance_m"], 1), "max_speed_mph": v["max_speed_mph"]}
                 for c, v in stats.items()
             },
+            "traffic_m": round(result.traffic_m, 1),
+            "traffic_paths": [[[round(x, 6), round(y, 6)] for x, y in line] for line in result.traffic_paths],
         }
 
     def geojson_file(name: str) -> FileResponse:
@@ -532,6 +543,10 @@ def create_app(data_dir: str | None = None) -> FastAPI:
     @app.get("/data/motoparking.geojson", include_in_schema=False)
     def motoparking_geojson() -> Response:
         return geojson_file("motoparking.geojson")
+
+    @app.get("/data/bikeways.geojson", include_in_schema=False)
+    def bikeways_geojson() -> Response:
+        return geojson_file("bikeways.geojson")
 
     web_dir = config.PROJECT_ROOT / "web"
     if web_dir.exists():

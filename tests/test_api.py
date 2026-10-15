@@ -154,8 +154,8 @@ def test_route_vehicle_param_and_segment_stats(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["vehicle"] == "ebike_c3"
-    assert "bike_lane" in body["segment_stats"]
-    assert body["segment_stats"]["bike_lane"]["distance_m"] > 0
+    assert "bike_path" in body["segment_stats"]
+    assert body["segment_stats"]["bike_path"]["distance_m"] > 0
     # the moped prices dedicated bike lanes as a discouraged option and takes
     # the residential streets instead
     r = client.post(
@@ -165,7 +165,7 @@ def test_route_vehicle_param_and_segment_stats(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["vehicle"] == "moped"
-    assert "bike_lane" not in body["segment_stats"]
+    assert "bike_path" not in body["segment_stats"]
 
 
 def test_route_unknown_vehicle_is_400(client):

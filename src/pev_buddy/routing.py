@@ -71,6 +71,10 @@ class RouteResult:
     # Per edge in edge_idxs, the (from, to) fraction of it ridden: (0, 1)
     # except where a trip starts or ends partway along a street.
     edge_parts: list[tuple[float, float]] = field(default_factory=list)
+    # Stretches ridden in mixed traffic (config.MIXED_TRAFFIC: a street with
+    # no bike lane or path), as [lon, lat] polylines, and their total length.
+    traffic_paths: list[list[list[float]]] = field(default_factory=list)
+    traffic_m: float = 0.0
 
 
 def snap_to_node(
@@ -587,6 +591,9 @@ def _reconstruct(
     descent_total = 0.0
     stats: dict[str, dict] = {}
     bike_paths: list[dict] = []
+    traffic_paths: list[list[list[float]]] = []
+    traffic_m = 0.0
+    in_traffic = False
     for i, e in enumerate(edges):
         f0, f1 = parts[i]
         share = max(f1 - f0, 0.0)
@@ -597,6 +604,13 @@ def _reconstruct(
         _a, _b, _s, _h, length, category, eff, posted = graph.edges[e]
         length *= share
         total += length
+        if category in config.MIXED_TRAFFIC and len(geom) > 1:
+            traffic_m += length
+            if in_traffic:
+                traffic_paths[-1].extend(geom[1:])
+            else:
+                traffic_paths.append([list(c) for c in geom])
+        in_traffic = category in config.MIXED_TRAFFIC
         # Per-edge ETA from vehicle cap x road limit, slowed uphill.
         duration += graph.edge_duration_s(e, veh, climbs) * share
         climb = float(climbs[e]) * share if len(climbs) else 0.0
@@ -641,4 +655,6 @@ def _reconstruct(
         descent_m=descent_total,
         bike_paths=bike_paths,
         edge_parts=parts,
+        traffic_paths=traffic_paths,
+        traffic_m=traffic_m,
     )

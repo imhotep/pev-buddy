@@ -98,6 +98,8 @@ class VehicleType:
     # on roads above road_max_mph (Class II/IV lanes)
     access_mode: str = "bicycle"  # which Overture access-restriction mode
     # applies to this vehicle ("bicycle" or "motorcycle")
+    avoid_traffic: bool = False  # slow, small-wheeled: keep off streets with
+    # cars wherever a bike path or lane goes, and show where it can't
 
 
 VEHICLE_TYPES: dict[str, VehicleType] = {
@@ -115,24 +117,28 @@ VEHICLE_TYPES: dict[str, VehicleType] = {
     "emb": VehicleType(
         "emb",
         "E-skateboard / Onewheel",
-        "Electric boards, including Onewheels. CA limit 15 mph; roads under 35 mph.",
+        "Electric boards, including Onewheels. CA limit 15 mph. Keeps to bike paths and lanes wherever "
+        "they go; streets with cars (25 mph or less) only where there's no other way, shown in red.",
         15,
         True,
-        "A",
-        35,
-        False,
+        "D",
+        25,
         True,
+        True,
+        avoid_traffic=True,
     ),
     "euc": VehicleType(
         "euc",
         "Electric unicycle (EUC)",
-        "Legal gray area: EUCs have no specific CA vehicle class. Routed conservatively. Check local rules.",
+        "Legal gray area: EUCs have no specific CA vehicle class. Keeps to bike paths and lanes wherever "
+        "they go; streets with cars (25 mph or less) only where there's no other way, shown in red.",
         15,
         True,
-        "A",
+        "D",
         25,
         True,
         True,
+        avoid_traffic=True,
     ),
     "ebike_c1": VehicleType(
         "ebike_c1", "Class 1 e-bike", "Pedal assist only, no throttle. Up to 20 mph.", 20, True, "A", None
@@ -181,8 +187,8 @@ def vehicle_allows(veh: VehicleType, category: str, effective_speed_mph: float) 
         return False  # stairs: walking only
     if veh.road_max_mph is None:
         return True  # no road-speed restriction (e-bikes, mopeds)
-    if category == "bike_lane" and veh.bike_lane_exempt:
-        return True  # Class II/IV bike lanes: usable above the road limit
+    if category in ("bike_lane", "bike_path") and veh.bike_lane_exempt:
+        return True  # Class I/II/IV bikeways: usable above the road limit
     if category in ("sidewalk", "living_street"):
         return True  # no roadway-speed concept applies
     if veh.road_max_inclusive:
@@ -224,12 +230,19 @@ SHARED_MAX_MPH = 28.0
 
 # Cost profiles: multipliers per (profile, category); edge cost =
 # length_m * multiplier. Vehicle types map onto profiles:
-#   A — e-scooter, e-skateboard, EUC, Class 1/2 e-bikes (conservative)
+#   A — e-scooter, Class 1/2 e-bikes (conservative)
 #   B — Class 3 e-bike (comfortable on shared streets and arterials)
 #   C — moped (street-legal at speed; dedicated bike lanes discouraged)
+#   D — e-skateboard / Onewheel, EUC: slow and small-wheeled, so riding in
+#       traffic is the danger. Bike paths are cheapest, painted lanes next;
+#       every street with cars costs several times its length, so a route
+#       goes well out of its way to stay on bikeways (VehicleType.avoid_traffic)
 # Categories:
-#   bike_lane     cycleway/path/track, or a segment with a designated
-#                 bicycle access rule (dedicated or painted bike facility)
+#   bike_path     off the street or separated from cars: Overture
+#                 cycleway/path/track, SFMTA Class I paths and Class IV
+#                 protected bikeways
+#   bike_lane     a painted lane beside traffic (SFMTA Class II; without
+#                 SFMTA data, Overture's bicycle-designated streets)
 #   living_street traffic-calmed street
 #   sidewalk      footway — ride only as a last resort (walk-your-vehicle
 #                 connector, e.g. to reach a point walled in by fast streets)
@@ -238,8 +251,16 @@ COST_PROFILES = {
     "A": {"bike_lane": 0.85, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.0, "shared": 1.3, "arterial": 3.0, "steps": 1000.0},
     "B": {"bike_lane": 0.85, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.0, "shared": 1.0, "arterial": 1.6, "steps": 1000.0},
     "C": {"bike_lane": 3.0, "living_street": 0.9, "sidewalk": 20.0, "quiet": 1.1, "shared": 0.9, "arterial": 1.0, "steps": 1000.0},
+    "D": {"bike_lane": 1.4, "living_street": 1.3, "sidewalk": 20.0, "quiet": 3.0, "shared": 5.0, "arterial": 10.0, "steps": 1000.0},
 }
-CATEGORIES = ("bike_lane", "living_street", "sidewalk", "quiet", "shared", "arterial", "steps")
+# A separated path costs what a lane did for the other profiles, so their
+# routes don't change; for D it is the cheapest way to ride.
+for _profile, _bike_path in (("A", 0.85), ("B", 0.85), ("C", 3.0), ("D", 0.8)):
+    COST_PROFILES[_profile]["bike_path"] = _bike_path
+# Index order is stored in graph.npz (edge_cat): append, never reorder.
+CATEGORIES = ("bike_lane", "living_street", "sidewalk", "quiet", "shared", "arterial", "steps", "bike_path")
+# Where a rider shares the roadway with cars (no bike lane or path).
+MIXED_TRAFFIC = frozenset({"quiet", "shared", "arterial"})
 
 # --- Hills -------------------------------------------------------------------
 # Edge cost adds, per cost profile, for the climb along an edge (end elevation
@@ -261,8 +282,9 @@ HILL_PROFILES = {
     "B": {"climb": 10.0, "steep": 2.0, "descent": 1.0},
     "C": {"climb": 3.0, "steep": 1.0, "descent": 0.0},
 }
+HILL_PROFILES["D"] = HILL_PROFILES["A"]  # the same small motors
 # ETA: uphill speed = travel speed / (1 + slowdown * grade).
-HILL_SLOWDOWN = {"A": 6.0, "B": 4.0, "C": 1.5}
+HILL_SLOWDOWN = {"A": 6.0, "B": 4.0, "C": 1.5, "D": 6.0}
 
 
 def hill_cost(profile: str, length_m, climb_m):
