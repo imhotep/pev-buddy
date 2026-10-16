@@ -167,7 +167,10 @@ def test_road_category_banding():
     assert cat("residential", None, False) == "shared"  # 25 mph default
     assert cat("service", None, False) == "quiet"  # 20 mph default
     assert cat("unclassified", None, False) == "shared"  # 25 mph default
-    assert cat("tertiary", None, False) == "arterial"  # 30 mph default
+    # Unposted city streets are 25 mph (CVC 22352), tertiaries included;
+    # unposted boulevards keep higher guesses (their signs are often missing)
+    assert cat("tertiary", None, False) == "shared"  # 25 mph default
+    assert cat("tertiary", 30, False) == "arterial"  # posted 30 wins
     assert cat("secondary", None, False) == "arterial"  # 40 mph default
     assert cat("living_street", None, False) == "living_street"
     assert cat("footway", None, False) == "sidewalk"

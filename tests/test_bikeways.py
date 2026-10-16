@@ -9,10 +9,10 @@ from pev_buddy.graph import RoadGraph
 from pev_buddy.routing import find_route
 
 
-def _line(cls, pts, direction=None):
+def _line(cls, pts, direction=None, contraflow=False):
     return {
         "type": "Feature",
-        "properties": {"cls": cls, "street": None, "dir": direction},
+        "properties": {"cls": cls, "street": None, "dir": direction, "contraflow": contraflow},
         "geometry": {"type": "LineString", "coordinates": [list(m_to_lonlat(x, y)) for x, y in pts]},
     }
 
@@ -36,7 +36,7 @@ def test_to_feature_keeps_class_and_direction():
         "geometry": {"type": "LineString", "coordinates": [[-122.4, 37.77], [-122.399, 37.771]]},
     }
     f = bikeways.to_feature(row)
-    assert f["properties"] == {"cls": 2, "street": "BRANNAN ST", "dir": "E"}
+    assert f["properties"] == {"cls": 2, "street": "BRANNAN ST", "dir": "E", "contraflow": False}
     assert bikeways.to_feature({**row, "properties": {"FACILITY_T": None}}) is None
 
 
@@ -50,9 +50,9 @@ def test_match_puts_each_class_on_its_street_and_direction():
         _line(2, [(-100, 40), (0, 40)]),  # 40 m off Fast Road: no match
     ]
     m = bikeways.match(feats, lanes)
-    assert m["s-main1"] == m["s-main2"] == (2, 2)
-    assert m["s-side1"] == m["s-side2"] == (4, 0)
-    assert m["s-vert1"] == (3, 3)
+    assert m["s-main1"] == m["s-main2"] == (2, 2, 0)
+    assert m["s-side1"] == m["s-side2"] == (4, 0, 0)  # protected, eastbound only
+    assert m["s-vert1"] == (3, 3, 0)
     assert "s-walk" not in m and "s-fast" not in m
 
 
@@ -141,3 +141,30 @@ def test_api_reports_traffic_for_boards(synth_data_dir):
     assert not any("no bike path or lane" in w for w in scooter["warnings"])
     assert vehicles["emb"]["avoid_traffic"]
     assert not vehicles["scooter"]["avoid_traffic"] and not vehicles["euc"]["avoid_traffic"]
+
+
+def test_a_contraflow_lane_opens_its_direction_to_bikes_only():
+    # One Way Alley runs south from D (0,-100) to G (0,-200); SFMTA has a
+    # northbound contraflow lane on it.
+    feats = road_features()
+    for f in feats:
+        if f["id"] == "s-oneway":
+            f["properties"]["ow_moto"] = 1  # one-way for motor vehicles too
+    lanes = [_line(2, [(1, -200), (1, -100)], "N", contraflow=True)]
+    m = bikeways.match(feats, lanes)
+    assert m["s-oneway"] == (0, 2, 2)  # a lane backward (north), opened backward
+    g = _graph(feats, lanes)
+    assert _cats(g, "s-oneway")[1] == "bike_lane"
+    north = next(k for k, e in enumerate(g.edges) if g.segments[e[2]]["id"] == "s-oneway" and e[3] == 1)
+    assert g.edge_ok["emb"][north] and g.edge_ok["scooter"][north]
+    assert not g.edge_ok["moped"][north]  # a bike lane, not a lane for mopeds
+
+
+def test_a_directed_lane_without_the_contraflow_flag_opens_nothing():
+    # A divided road's one-way side sits near the lane of the other side.
+    feats = road_features()
+    lanes = [_line(2, [(1, -200), (1, -100)], "N")]
+    m = bikeways.match(feats, lanes)
+    assert m["s-oneway"] == (0, 2, 0)
+    g = _graph(feats, lanes)
+    assert not any(g.segments[e[2]]["id"] == "s-oneway" and e[3] == 1 and g.edge_ok["emb"][k] for k, e in enumerate(g.edges))

@@ -235,7 +235,12 @@ tap from the route.
    of that class running within 30° of it, and a line marked with one
    direction counts only for that direction. Lanes and protected bikeways land
    only on streets, paths only on paths; a sidewalk takes only a Class I path
-   (a promenade signed for bikes), never the lane beside it. With SFMTA data,
+   (a promenade signed for bikes), never the lane beside it. A lane SFMTA
+   flags as contraflow (`CONTRAFLOW=YES`, 61 lines) also opens its direction
+   to bikes, boards and scooters where Overture has the street one-way the
+   other way: Lyell St northbound from Cayuga to Bosworth. Only that flag
+   counts, since a divided road's one-way sides each sit near both of its
+   lanes. With SFMTA data,
    Overture's bicycle flag is ignored: it also marks signed routes with no
    lane (Cayuga Ave). Without `bikeways.geojson` the flag still marks lanes.
 
@@ -258,7 +263,12 @@ tap from the route.
    without this, 1.9 km of Mission St read as a 40 mph secondary and
    e-scooters were sent over College Hill to avoid it. Streets with no posted
    block at all fall back to per-class defaults
-   (`SPEED_BY_CLASS_DEFAULT_MPH`: residential 25, tertiary 30, secondary 40).
+   (`SPEED_BY_CLASS_DEFAULT_MPH`: residential and tertiary 25, secondary 40,
+   primary 55). 25 mph is California's limit for an unsigned city street
+   (CVC 22352); unposted secondary and primary roads are mostly boulevards
+   whose signs Overture lacks (Junipero Serra, Bayshore), so they keep higher
+   guesses. With 30 mph assumed, Bosworth St east of Lyell was closed to
+   boards and e-scooters.
 
    **Hills.** An edge's climb is the ground elevation at its end junction minus
    its start (never mid-edge samples: the terrain under a bridge deck would
