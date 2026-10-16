@@ -194,14 +194,18 @@ def vehicle_allows(veh: VehicleType, category: str, effective_speed_mph: float) 
     return effective_speed_mph < veh.road_max_mph
 
 # Overture does not post a speed on every street; fall back to these
-# per-class values (mph) when no limit is posted.
+# per-class values (mph) when no limit is posted. City streets are 25 mph
+# unless signed otherwise (CVC 22352), residential and tertiary ones (Judah,
+# Balboa, Bosworth) included. Unposted secondary and primary roads are mostly
+# boulevards whose signs Overture lacks (Junipero Serra ~40, Bayshore 35), so
+# they keep higher guesses.
 SPEED_BY_CLASS_DEFAULT_MPH = {
     "residential": 25,
     "living_street": 15,
     "unclassified": 25,
     "service": 20,
     "pedestrian": 10,
-    "tertiary": 30,
+    "tertiary": 25,
     "secondary": 40,
     "trunk": 50,
     "primary": 55,

@@ -88,6 +88,8 @@ def to_feature(row: dict) -> dict | None:
             "street": (p.get("STREETNAME") or "").strip() or None,
             # The direction of travel the facility serves, when it serves one.
             "dir": direction if direction in ("N", "S", "E", "W") else None,
+            # A lane against a one-way street's traffic, for bikes only.
+            "contraflow": (p.get("CONTRAFLOW") or "").strip().upper() == "YES",
         },
         "geometry": {"type": "LineString", "coordinates": [[round(x, 6), round(y, 6)] for x, y, *_ in geom["coordinates"]]},
     }
@@ -121,49 +123,56 @@ def _angle(a: float, b: float) -> float:
 
 
 class _Index:
-    """SFMTA line pieces in a coarse grid: (ax, ay, bx, by, bearing, cls, dir)."""
+    """SFMTA line pieces in a coarse grid: (ax, ay, bx, by, bearing, cls, dir, contraflow)."""
 
     def __init__(self, features: list[dict], kx: float):
         self.kx = kx
         self.cells: dict[tuple[int, int], list[tuple]] = defaultdict(list)
         for f in features:
             cls, d = f["properties"]["cls"], f["properties"]["dir"]
+            contra = bool(f["properties"].get("contraflow"))
             cs = f["geometry"]["coordinates"]
             for (alon, alat), (blon, blat) in zip(cs, cs[1:]):
                 ax, ay = _xy(alon, alat, kx)
                 bx, by = _xy(blon, blat, kx)
                 if ax == bx and ay == by:
                     continue
-                piece = (ax, ay, bx, by, _bearing(ax, ay, bx, by), cls, d)
+                piece = (ax, ay, bx, by, _bearing(ax, ay, bx, by), cls, d, contra)
                 for cx in range(int(min(alon, blon) // _CELL), int(max(alon, blon) // _CELL) + 1):
                     for cy in range(int(min(alat, blat) // _CELL), int(max(alat, blat) // _CELL) + 1):
                         self.cells[(cx, cy)].append(piece)
 
-    def near(self, lon: float, lat: float, heading: float, allowed: frozenset) -> list[tuple[int, str | None]]:
-        """(cls, dir) of the pieces within MATCH_M of the point, along `heading`."""
+    def near(self, lon: float, lat: float, heading: float, allowed: frozenset) -> list[tuple[int, str | None, bool]]:
+        """(cls, dir, contraflow) of the pieces within MATCH_M of the point, along `heading`."""
         px, py = _xy(lon, lat, self.kx)
         cx, cy = int(lon // _CELL), int(lat // _CELL)
         out = []
         for gx in (cx - 1, cx, cx + 1):
             for gy in (cy - 1, cy, cy + 1):
-                for ax, ay, bx, by, brg, cls, d in self.cells.get((gx, gy), ()):
+                for ax, ay, bx, by, brg, cls, d, contra in self.cells.get((gx, gy), ()):
                     if cls not in allowed or _angle(brg % 180.0, heading % 180.0) > MATCH_DEG:
                         continue
                     dx, dy = bx - ax, by - ay
                     t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
                     if math.hypot(px - ax - t * dx, py - ay - t * dy) <= MATCH_M:
-                        out.append((cls, d))
+                        out.append((cls, d, contra))
         return out
 
 
-def match(roads_features: list[dict], bikeways: list[dict]) -> dict[str, tuple[int, int]]:
-    """Per road segment id, the SFMTA class on it as (forward, backward)
-    codes; 0 where SFMTA has none. Segments with none either way are left out.
+def match(roads_features: list[dict], bikeways: list[dict]) -> dict[str, tuple[int, int, int]]:
+    """Per road segment id, the SFMTA class on it as (forward, backward,
+    signed) codes; 0 where SFMTA has none. Segments with none either way are
+    left out.
 
     A segment takes a class when at least two of three points along it (the
     middle one, on short segments) sit on an SFMTA line of that class running
     the same way. A line marked with a direction of travel ("DIR") counts
-    only for the heading within 90 degrees of it.
+    only for the heading within 90 degrees of it. `signed` has bit 1
+    (forward) / 2 (backward) set where a contraflow path or lane (Class I,
+    II, IV, SFMTA CONTRAFLOW=YES) serves that heading: bikes may ride it
+    against a one-way street's traffic (Lyell St northbound). Only that flag
+    counts: a divided road's two one-way sides each sit near both of its
+    lanes, so a lane's direction alone would open the wrong side.
     """
     if not bikeways:
         return {}
@@ -180,21 +189,28 @@ def match(roads_features: list[dict], bikeways: list[dict]) -> dict[str, tuple[i
             continue
         need = 2 if len(samples) == 3 else 1
         codes = []
-        for heading_off in (0.0, 180.0):  # forward, then backward along the segment
+        signed = 0
+        for bit, heading_off in ((1, 0.0), (2, 180.0)):  # forward, then backward along the segment
             votes: dict[int, int] = defaultdict(int)
+            directed = 0
             for lon, lat, brg in samples:
                 travel = (brg + heading_off) % 360.0
                 seen = set()
-                for c, d in index.near(lon, lat, brg, allowed):
+                lane_for_this_way = False
+                for c, d, contra in index.near(lon, lat, brg, allowed):
                     if d is not None and _angle(_DIR_DEG[d], travel) >= 90.0:
                         continue  # a one-direction facility, serving the other way
                     seen.add(c)
+                    lane_for_this_way |= contra and d is not None and c in (1, 2, 4)
                 for c in seen:
                     votes[c] += 1
+                directed += lane_for_this_way
             won = [c for c, n in votes.items() if n >= need]
             codes.append(max(won, key=_RANK.__getitem__) if won else 0)
+            if directed >= need and codes[-1] in (1, 2, 4):
+                signed |= bit
         if codes[0] or codes[1]:
-            out[p.get("id")] = (codes[0], codes[1])
+            out[p.get("id")] = (codes[0], codes[1], signed)
     return out
 
 

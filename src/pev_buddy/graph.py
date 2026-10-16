@@ -67,12 +67,14 @@ class RoadGraph:
         roads_geojson: dict,
         connectors: dict,
         bike_exempt_turns: list | None = None,
-        bikeways: dict[str, tuple[int, int]] | None = None,
+        bikeways: dict[str, tuple[int, int, int]] | None = None,
     ) -> None:
         """`bikeways` (bikeways.match): SFMTA's class per segment id and
         direction. When given, it decides which streets have a bike lane;
         Overture's own bicycle flag, which also marks signed routes with no
-        lane, is then ignored."""
+        lane, is then ignored. A contraflow lane (SFMTA CONTRAFLOW=YES) also
+        opens its direction to bicycle-mode vehicles where Overture has the
+        street one-way the other way."""
         cids = list(connectors)
         self.node_index = {cid: i for i, cid in enumerate(cids)}
         self.node_coords = np.array([connectors[c] for c in cids], dtype=np.float64)
@@ -120,14 +122,15 @@ class RoadGraph:
                     "conns": list(zip(node_idxs, (c[1] for c in conns))),
                 }
             )
+            sfmta = None if bikeways is None else bikeways.get(p.get("id"), (0, 0, 0))
             meta.append(
                 (
                     cls,
                     p.get("speed"),
-                    p.get("ow", 3),
+                    p.get("ow", 3) | (sfmta[2] if sfmta else 0),
                     p.get("ow_moto", 3),
                     p.get("bike_desig", 0),
-                    None if bikeways is None else bikeways.get(p.get("id"), (0, 0)),
+                    sfmta,
                 )
             )
             for proh in p.get("prohib") or []:
