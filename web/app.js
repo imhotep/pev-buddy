@@ -42,6 +42,8 @@ map.addControl(new maplibregl.NavigationControl(), "top-right");
 // apart from the orange of the route and the destination pin (they used to
 // share one amber, and a charger read as a destination).
 const PIN_COLORS = { charger: "#fde047", locker: "#4da3ff", rack: "#b48cff", moto: "#f472b6" };
+// Route stretches in car traffic, for boards (vehicle avoid_traffic).
+const TRAFFIC_COLOR = "#ff5a5f";
 
 // Map legend: what each color means. Open on desktop, folded to a "Key"
 // button on phones (remembered); hidden while riding. Lists only the pin
@@ -50,6 +52,7 @@ const LEGEND_KEY = "pev-legend-open";
 const LEGEND_ITEMS = [
   { kind: "line", color: "#ffb02e", label: "Your route" },
   { kind: "dash", color: "#ffb02e", label: "Walk from parking" },
+  { kind: "line", color: TRAFFIC_COLOR, label: "With car traffic", traffic: true },
   { kind: "line", color: "#35d07f", label: "Bike lane or path" },
   { kind: "line", color: "#5d7086", label: "Street" },
   { kind: "dot", color: "#35d07f", ring: true, label: "Start" },
@@ -101,6 +104,7 @@ function syncLegend() {
   list.innerHTML = "";
   for (const it of LEGEND_ITEMS) {
     if (it.pin && !pinKindShown(it.pin)) continue;
+    if (it.traffic && !avoidsTraffic()) continue;
     const li = document.createElement("li");
     if (it.pin) li.dataset.pin = it.pin;
     const sw = document.createElement("span");
@@ -175,6 +179,21 @@ async function loadVehicleTypes() {
   syncVehicleDesc();
 }
 
+// Boards: routed to keep out of car traffic, with what's left of it
+// marked on the route (server: VehicleType.avoid_traffic).
+function avoidsTraffic() {
+  const v = vehicleTypes.find((x) => x.id === state.vehicle);
+  return !!(v && v.avoid_traffic);
+}
+
+function trafficFC(route) {
+  if (!avoidsTraffic() || !route || !route.traffic_paths) return emptyFC();
+  return {
+    type: "FeatureCollection",
+    features: route.traffic_paths.map((coordinates) => ({ type: "Feature", geometry: { type: "LineString", coordinates } })),
+  };
+}
+
 function syncVehicleDesc() {
   const v = vehicleTypes.find((x) => x.id === state.vehicle);
   document.getElementById("vehicle-desc").textContent = v ? v.description : "";
@@ -217,7 +236,7 @@ const fmtMin = (s) => `${Math.max(1, Math.round(s / 60))} min`;
 // ---------------------------------------------------------------- map layers
 
 map.on("load", async () => {
-  let roads, pois;
+  let roads, pois, bikeways;
   try {
     roads = await fetchRoads();
     const stations = await (await fetch("/data/stations.geojson")).json();
@@ -226,6 +245,7 @@ map.on("load", async () => {
     const bikelink = await fetchFC("/data/bikelink.geojson");
     const racks = await fetchFC("/data/racks.geojson");
     const moto = await fetchFC("/data/motoparking.geojson");
+    bikeways = await fetchFC("/data/bikeways.geojson");
     // Chargers, lockers, racks and motorcycle parking share one clustered
     // source: zoomed out the map shows count bubbles instead of thousands of
     // overlapping pins. It holds only the kinds that fit the vehicle (see
@@ -276,6 +296,23 @@ map.on("load", async () => {
     },
   });
 
+  // SFMTA's bike paths, protected and painted lanes (Class I, IV, II), over
+  // the streets they run on; signed routes (Class III) are streets with cars.
+  map.addSource("pev-bikeways", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: bikeways.features.filter((f) => f.properties.cls !== 3) },
+  });
+  map.addLayer({
+    id: "pev-bikeways",
+    type: "line",
+    source: "pev-bikeways",
+    paint: {
+      "line-color": "#35d07f",
+      "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 16, 3],
+      "line-opacity": 0.9,
+    },
+  });
+
   map.addSource("pev-route-casing", { type: "geojson", data: emptyFC() });
   map.addLayer({
     id: "pev-route-casing",
@@ -289,6 +326,15 @@ map.on("load", async () => {
     type: "line",
     source: "pev-route",
     paint: { "line-color": "#ffb02e", "line-width": 5.5, "line-opacity": 0.98 },
+  });
+  // Boards: the stretches of the route with cars, over the route.
+  map.addSource("pev-route-traffic", { type: "geojson", data: emptyFC() });
+  map.addLayer({
+    id: "pev-route-traffic",
+    type: "line",
+    source: "pev-route-traffic",
+    layout: { "line-cap": "round" },
+    paint: { "line-color": TRAFFIC_COLOR, "line-width": 5.5, "line-opacity": 0.98 },
   });
 
   // Highlight for the step selected in the turn-by-turn list.
@@ -922,6 +968,7 @@ function resetTrip() {
   showTripStatus("");
   if (map.getSource("pev-route")) map.getSource("pev-route").setData(emptyFC());
   if (map.getSource("pev-route-casing")) map.getSource("pev-route-casing").setData(emptyFC());
+  if (map.getSource("pev-route-traffic")) map.getSource("pev-route-traffic").setData(emptyFC());
   clearStepHighlight();
   document.getElementById("route-summary").classList.add("hidden");
   document.getElementById("steps-drawer").classList.add("hidden");
@@ -1876,7 +1923,7 @@ function arrive() {
   if (state.parkFor) {
     // Parked near the destination: the ride is over and the walk is what's
     // left, so the map shows just that until Done.
-    for (const id of ["pev-route", "pev-route-casing"]) if (map.getSource(id)) map.getSource(id).setData(emptyFC());
+    for (const id of ["pev-route", "pev-route-casing", "pev-route-traffic"]) if (map.getSource(id)) map.getSource(id).setData(emptyFC());
     const g = state.parkFor;
     const e = state.endRef;
     const path = walk && walk.key === walkKey() ? walk.path : [];
@@ -2119,6 +2166,7 @@ function renderRoute(data) {
   };
   map.getSource("pev-route").setData({ type: "FeatureCollection", features: [fc] });
   map.getSource("pev-route-casing").setData({ type: "FeatureCollection", features: [fc] });
+  map.getSource("pev-route-traffic").setData(trafficFC(data));
 
   const summary = document.getElementById("route-summary");
   // Total climb, in feet like every other distance; hidden when flat or when
@@ -2137,6 +2185,9 @@ function renderRoute(data) {
   html += `<span class="route-from">From ${escapeHtml(data.start_label || "start")} to ${escapeHtml(data.end_label || "destination")}</span>`;
   if (state.parkFor) {
     html += `<div class="park-note">${walkNote()}</div>`;
+  }
+  if (!here && avoidsTraffic() && (data.traffic_m || 0) < 1) {
+    html += `<div class="all-bikeway">✓ All on bike paths and lanes, no car traffic</div>`;
   }
   for (const w of data.warnings || []) html += `<div class="warn">⚠ ${escapeHtml(w)}</div>`;
   summary.innerHTML = html;

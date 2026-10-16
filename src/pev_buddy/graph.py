@@ -62,7 +62,17 @@ class RoadGraph:
 
     # -- construction -------------------------------------------------------
 
-    def build(self, roads_geojson: dict, connectors: dict, bike_exempt_turns: list | None = None) -> None:
+    def build(
+        self,
+        roads_geojson: dict,
+        connectors: dict,
+        bike_exempt_turns: list | None = None,
+        bikeways: dict[str, tuple[int, int]] | None = None,
+    ) -> None:
+        """`bikeways` (bikeways.match): SFMTA's class per segment id and
+        direction. When given, it decides which streets have a bike lane;
+        Overture's own bicycle flag, which also marks signed routes with no
+        lane, is then ignored."""
         cids = list(connectors)
         self.node_index = {cid: i for i, cid in enumerate(cids)}
         self.node_coords = np.array([connectors[c] for c in cids], dtype=np.float64)
@@ -71,7 +81,7 @@ class RoadGraph:
         # Build-time-only per-segment fields (class/speed/access data). Kept in
         # a local parallel list and discarded at the end of build() so the
         # parsed Overture property dicts are never retained on the graph.
-        meta: list[tuple] = []  # (cls, speed, ow, ow_moto, bike_desig) per segment
+        meta: list[tuple] = []  # (cls, speed, ow, ow_moto, bike_desig, sfmta) per segment
         seg_id_to_idx: dict[str, int] = {}
         # prohib/dest reference segment ids that may be registered later, so
         # collect the raw rows in pass 1 and resolve them after registration.
@@ -117,6 +127,7 @@ class RoadGraph:
                     p.get("ow", 3),
                     p.get("ow_moto", 3),
                     p.get("bike_desig", 0),
+                    None if bikeways is None else bikeways.get(p.get("id"), (0, 0)),
                 )
             )
             for proh in p.get("prohib") or []:
@@ -146,7 +157,7 @@ class RoadGraph:
 
         # Pass 2: edges.
         for seg_idx, seg in enumerate(self.segments):
-            cls, posted, ow, ow_moto, bike_desig = meta[seg_idx]
+            cls, posted, ow, ow_moto, bike_desig, sfmta = meta[seg_idx]
             # A block with no posted limit takes its street's (see
             # _inherit_street_speeds); `posted` stays what the data says.
             speed = posted if posted is not None else inferred.get(seg_idx)
@@ -159,7 +170,9 @@ class RoadGraph:
                 bit = 1 if heading == 0 else 2
                 if not (ow_union & bit):
                     continue
-                category = self._edge_category(cls, speed, bool(bike_desig & bit))
+                category = self._edge_category(
+                    cls, speed, bool(bike_desig & bit), None if sfmta is None else sfmta[heading]
+                )
                 if category is None:
                     continue
                 eff_speed = (
@@ -334,17 +347,24 @@ class RoadGraph:
         return self._hill_cache[profile]
 
     @staticmethod
-    def _edge_category(cls: str, speed: float | None, desig: bool) -> str | None:
+    def _edge_category(cls: str, speed: float | None, desig: bool, sfmta: int | None = None) -> str | None:
         """Cost category for a segment heading, or None when no vehicle type routes it.
 
         A posted limit wins over the class default; above MAX_SPEED_MPH the
         segment is a highway and is excluded for every vehicle type.
+        Bike facilities: an off-street path, or SFMTA Class I / IV (separated
+        from cars), is "bike_path"; an SFMTA Class II painted lane is
+        "bike_lane". `sfmta` is SFMTA's class code for this heading (0: none),
+        or None without SFMTA data, when Overture's bicycle flag marks lanes.
+        A Class III route (sharrows) is a street with cars: its speed band.
         """
         if cls in config.EXCLUDED_CLASSES:
             return None
         if cls == "steps":
             return "steps"
-        if desig or cls in ("cycleway", "path", "track"):
+        if cls in ("cycleway", "path", "track") or sfmta in (1, 4):
+            return "bike_path"
+        if sfmta == 2 or (sfmta is None and desig):
             return "bike_lane"
         if cls == "footway":
             return "sidewalk"

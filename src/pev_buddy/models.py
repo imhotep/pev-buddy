@@ -123,3 +123,7 @@ class RouteOut(BaseModel):
     segment_stats: dict[str, SegmentStat] | None = None
     climb_m: float = 0.0  # total ascent (m); 0 without elevation data
     descent_m: float = 0.0
+    # Mixed traffic: the length and lines of the stretches on streets with
+    # cars and no bike lane or path (drawn in red for boards).
+    traffic_m: float = 0.0
+    traffic_paths: list[list[list[float]]] = []

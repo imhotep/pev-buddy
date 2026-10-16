@@ -19,9 +19,15 @@ hands-free: a big next-turn banner, voice prompts, and automatic rerouting.
 
 - **Routes for your vehicle, by California law.** Pick e-scooter, e-board,
   electric unicycle, Class 1/2/3 e-bike or moped. E-scooters keep to streets
-  of 25 mph or less (or bike lanes), boards to streets under 35 mph, mopeds
-  follow motor-vehicle rules. Quiet streets and bike lanes are preferred,
-  busy ones cost more, freeways are never used.
+  of 25 mph or less (or bike lanes), mopeds follow motor-vehicle rules. Quiet
+  streets and bike lanes are preferred, busy ones cost more, freeways are
+  never used.
+- **Keeps boards out of traffic.** Riding beside cars on an e-skateboard or
+  a Onewheel is the danger, so for those the route sticks to bike paths
+  and lanes (SFMTA's own network, shown in green on the map) wherever they
+  go, accepting a longer ride, and uses a street with cars (25 mph or less)
+  only where there's no other way. Those stretches are drawn in red and
+  totalled in the summary.
 - **Knows the hills.** Every junction carries its ground elevation. Climbs
   cost extra (most for the small motors of scooters and boards, least for
   mopeds), steep grades and steep descents more again, and uphill stretches
@@ -171,11 +177,13 @@ tap from the route.
    | `motoparking.geojson` | [DataSF / SFMTA Parking Meters](https://data.sf.gov/Transportation/Parking-Meters/8vzz-qzz9), black caps | ~2.9k motorcycle spaces grouped per block into ~330 sites, with space and metered counts (69 KB) |
    | `bike_exempt_turns.json` | OSM turn restrictions with `except=bicycle`, via the [Overpass API](https://overpass-api.de) | ~120 SF rules; see "Turn restrictions" below |
    | `elevation.npz` | [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (AWS Open Data; USGS 3DEP in the US) | ground elevation mosaic, zoom 14 (~7.5 m/px), sampled at every junction |
+   | `bikeways.geojson` | SFMTA bikeway network (the [SFMTA Bike Map](https://www.sfmta.com/BikeMap) layer, also on DataSF) | ~5.5k lines with their class: I path (138 km), II painted lane (209 km), III signed route (325 km), IV protected (87 km); matched onto the roads at bundle time (1.2 MB) |
 
    Every non-Overture pull keeps the existing file when its source is down,
    so a failed pull never breaks a build. `python -m pev_buddy.sync bundle
-   --fetch-elevation --fetch-turns` rebuilds the graph from an existing data
-   directory (with fresh elevation and turn data) without re-pulling Overture.
+   --fetch-elevation --fetch-turns --fetch-bikeways` rebuilds the graph from an
+   existing data directory (with fresh elevation, turn and bikeway data)
+   without re-pulling Overture.
 
 2. **Routing** (`src/pev_buddy/`) builds one directed *union* graph from
    segments + connectors (every edge any vehicle type may ride) and runs A*
@@ -203,20 +211,43 @@ tap from the route.
    | id | label | road access | profile |
    |---|---|---|---|
    | `scooter` (default) | E-scooter | roads ≤ 25 mph or in bike lanes | A |
-   | `emb` | E-skateboard / Onewheel | roads under 35 mph | A |
-   | `euc` | Electric unicycle | same as `scooter` (conservative) | A |
+   | `emb` | E-skateboard / Onewheel | roads ≤ 25 mph or on bikeways (the law allows under 35 mph; kept lower to stay out of traffic) | D |
+   | `euc` | Electric unicycle | same as `scooter` (conservative; some EUCs now reach 60 mph, so they aren't held to bikeways like boards) | A |
    | `ebike_c1` / `ebike_c2` | Class 1/2 e-bike | no road-speed restriction | A |
    | `ebike_c3` | Class 3 e-bike | no road-speed restriction | B |
    | `moped` | Moped | motor-vehicle rules (motorcycle access mode) | C |
    | `emoto` | E-moto | not street-legal: shown in the UI, route requests are blocked | — |
 
    **Speed-differential cost model.** Each segment heading gets a category:
-   `bike_lane` (cycleway/path/track or a designated bicycle facility),
-   `living_street`, `sidewalk` (footway: a high-cost walk-your-vehicle
-   connector), or a speed band from its effective limit: `quiet` ≤ 20 mph,
-   `shared` 20–28, `arterial` 28–45. Edge cost is `length_m ×
-   cost_profile[category]` (arterial = 3.0× for profile A, 1.6× for B, 1.0×
-   for C; bike lanes are 3.0× for mopeds) plus the hill cost below. Effective
+   `bike_path` (off the street or separated from cars: an Overture
+   cycleway/path/track, or SFMTA Class I or IV), `bike_lane` (an SFMTA Class
+   II painted lane), `living_street`, `sidewalk` (footway: a high-cost
+   walk-your-vehicle connector), or a speed band from its effective limit:
+   `quiet` ≤ 20 mph, `shared` 20–28, `arterial` 28–45. A Class III signed
+   route (sharrows) is a street with cars and keeps its speed band. Edge cost
+   is `length_m × cost_profile[category]` (arterial = 3.0× for profile A,
+   1.6× for B, 1.0× for C; bikeways are 3.0× for mopeds) plus the hill cost
+   below.
+
+   **Bikeways.** `bikeways.match` gives each road segment the SFMTA class
+   on it, per direction of travel: two of three points along the segment
+   (the middle one on a short segment) must lie within 12 m of an SFMTA line
+   of that class running within 30° of it, and a line marked with one
+   direction counts only for that direction. Lanes and protected bikeways land
+   only on streets, paths only on paths; a sidewalk takes only a Class I path
+   (a promenade signed for bikes), never the lane beside it. With SFMTA data,
+   Overture's bicycle flag is ignored: it also marks signed routes with no
+   lane (Cayuga Ave). Without `bikeways.geojson` the flag still marks lanes.
+
+   **Out of traffic (profile D).** E-skateboards and Onewheels (`avoid_traffic`) price
+   bike paths at 0.8×, painted lanes 1.4× and living streets 1.3×, but quiet
+   streets 3×, shared 5× and arterials 10×, so a route goes well out of its
+   way to stay on bikeways. On 60 random SF trips this took the median
+   share ridden with cars from 81% to 28%, for a median 9% longer ride (90%
+   of trips under 42% longer). The route response lists the remaining
+   stretches in car traffic (`traffic_paths`, `traffic_m`); the map draws
+   them in red and the summary says how far they run, or that the whole ride
+   is on bikeways. Effective
    limits above 45 mph are excluded for every vehicle, as are bridleways;
    stairs are in the graph only for walking (below); Overture
    `access_restrictions` clear heading bits per access mode.
@@ -590,7 +621,9 @@ vendored with its license in `web/vendor/`. Map data:
 [CDLA-Permissive-2.0](https://cdla.dev/permissive-2-0/), with OSM-derived
 upstream attribution. Bicycle-exempt turn restrictions: © OpenStreetMap
 contributors, [ODbL](https://opendatacommons.org/licenses/odbl/), via the
-Overpass API. Basemap tiles: CARTO. BikeLink locker locations:
+Overpass API. Bikeway network: SFMTA's
+[Bike Map](https://www.sfmta.com/BikeMap) layer (MTA.bikewaynetwork, also
+published on DataSF; public domain / PDDL), pulled at sync time. Basemap tiles: CARTO. BikeLink locker locations:
 [bikelink.org](https://bikelink.org) (© eLOCK Technologies LLC), pulled from
 the public locations page at sync time. Bike racks and motorcycle parking:
 SFMTA's [Bicycle Parking Racks](https://data.sf.gov/Transportation/Bicycle-Parking-Racks/hn4j-6fx5)

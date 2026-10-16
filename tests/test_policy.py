@@ -32,18 +32,21 @@ def test_vehicle_config_data():
     for vid in ("scooter", "emb", "euc", "ebike_c1", "ebike_c2", "ebike_c3", "moped"):
         assert config.VEHICLE_TYPES[vid].routable is True
     assert config.DEFAULT_VEHICLE == "scooter"
-    # EUCs route exactly like e-scooters (same access data)
-    euc, scooter = config.VEHICLE_TYPES["euc"], config.VEHICLE_TYPES["scooter"]
-    assert (euc.road_max_mph, euc.road_max_inclusive, euc.bike_lane_exempt, euc.profile) == (
-        scooter.road_max_mph,
-        scooter.road_max_inclusive,
-        scooter.bike_lane_exempt,
-        scooter.profile,
-    )
+    # EUCs and boards have the e-scooter's road access; boards also keep out
+    # of traffic (profile D), EUCs route like e-scooters
+    scooter = config.VEHICLE_TYPES["scooter"]
+    for vid in ("euc", "emb"):
+        v = config.VEHICLE_TYPES[vid]
+        assert (v.road_max_mph, v.road_max_inclusive, v.bike_lane_exempt) == (
+            scooter.road_max_mph,
+            scooter.road_max_inclusive,
+            scooter.bike_lane_exempt,
+        )
+    assert config.VEHICLE_TYPES["emb"].profile == "D" and config.VEHICLE_TYPES["emb"].avoid_traffic
+    for vid in ("euc", "scooter"):
+        assert config.VEHICLE_TYPES[vid].profile == "A" and not config.VEHICLE_TYPES[vid].avoid_traffic
     # road-access rules live in config as data
-    assert config.VEHICLE_TYPES["scooter"].road_max_mph == 25
-    assert config.VEHICLE_TYPES["emb"].road_max_mph == 35
-    assert config.VEHICLE_TYPES["emb"].road_max_inclusive is False  # "under 35 mph"
+    assert scooter.road_max_mph == 25
     for vid in ("ebike_c1", "ebike_c2", "ebike_c3", "moped"):
         assert config.VEHICLE_TYPES[vid].road_max_mph is None  # no road-speed restriction
     # mopeds ride under Overture's motorcycle access rules
@@ -68,13 +71,15 @@ def test_scooter_road_limit_25_mph():
         assert g.edge_ok["emb"][e]
 
 
-def test_emb_strictly_under_35_mph():
-    g = single_road_graph(speed=34)
+def test_boards_keep_to_25_mph_streets():
+    # The law allows boards on roads under 35 mph; PEV Buddy keeps them to
+    # 25 mph or less, like e-scooters (riding in traffic is the danger).
+    g = single_road_graph(speed=25)
     for e in edge_idxs(g, "s-road"):
-        assert g.edge_ok["emb"][e], "34 mph is under 35"
-    g = single_road_graph(speed=35)
+        assert g.edge_ok["emb"][e]
+    g = single_road_graph(speed=30)
     for e in edge_idxs(g, "s-road"):
-        assert not g.edge_ok["emb"][e], "35 mph is not under 35"
+        assert not g.edge_ok["emb"][e]
         assert g.edge_ok["ebike_c1"][e]
 
 
@@ -166,7 +171,16 @@ def test_road_category_banding():
     assert cat("secondary", None, False) == "arterial"  # 40 mph default
     assert cat("living_street", None, False) == "living_street"
     assert cat("footway", None, False) == "sidewalk"
-    assert cat("cycleway", None, False) == "bike_lane"
+    assert cat("cycleway", None, False) == "bike_path"
+    assert cat("path", None, False) == "bike_path"
+    # SFMTA classes, when known, decide the street's bikeway (and Overture's
+    # bicycle flag, which also marks signed routes, is ignored)
+    assert cat("residential", None, False, 1) == "bike_path"  # Class I
+    assert cat("secondary", None, False, 4) == "bike_path"  # Class IV protected
+    assert cat("secondary", None, False, 2) == "bike_lane"  # Class II painted
+    assert cat("residential", None, True, 3) == "shared"  # Class III: with cars
+    assert cat("residential", None, True, 0) == "shared"
+    assert cat("residential", None, True) == "bike_lane"  # no SFMTA data
     assert cat("motorway", None, False) is None  # 65 mph default -> excluded
     assert cat("steps", None, False) == "steps"  # walking only
     assert cat("bridleway", None, False) is None
@@ -218,7 +232,7 @@ def test_segment_stats_multiple_categories():
     a = m_to_lonlat(0, 0)
     f = m_to_lonlat(200, -100)
     r = find_route(g, *a, *f, vehicle="ebike_c3")  # shared streets + cycleway
-    assert "bike_lane" in r.segment_stats
+    assert "bike_path" in r.segment_stats
     assert "shared" in r.segment_stats
     total = sum(v["distance_m"] for v in r.segment_stats.values())
     assert total == pytest.approx(r.distance_m, abs=1e-6)
@@ -230,7 +244,7 @@ def test_moped_avoids_dedicated_bike_lane():
     a = m_to_lonlat(0, 0)
     f = m_to_lonlat(200, -100)
     r = find_route(g, *a, *f, vehicle="moped")
-    assert "bike_lane" not in r.segment_stats
+    assert "bike_path" not in r.segment_stats
     # ...while the e-scooter takes the cycleway
     r = find_route(g, *a, *f, vehicle="scooter")
-    assert "bike_lane" in r.segment_stats
+    assert "bike_path" in r.segment_stats

@@ -1674,3 +1674,29 @@ def test_minimized_debug_panel_can_still_be_closed(page):
 
 def test_summary_and_steps_round_short_distances_alike(page):
     assert page.evaluate("() => [fmtDist(22.8), fmtDist(29.0), fmtDist(29.8), fmtDist(60)]") == ["75 ft", "95 ft", "100 ft", "200 ft"]
+
+
+# ------------------------------------------------- boards keep out of traffic
+
+
+def test_board_route_marks_its_stretches_with_cars(page):
+    # A to F on a board: Main Street (with cars), then the Cycle Path.
+    page.select_option("#vehicle", "emb")
+    route_via_ui(page)
+    page.wait_for_function("() => map.getSource('pev-route-traffic')._data.features.length === 1")
+    assert "With car traffic" in page.text_content("#map-legend-list")
+    assert "no bike path or lane" in page.text_content("#route-summary")
+    # An e-scooter's route isn't marked, and the key drops the entry.
+    page.select_option("#vehicle", "scooter")
+    page.wait_for_function("() => state.route && state.route.vehicle === 'scooter'")
+    assert page.evaluate("() => map.getSource('pev-route-traffic')._data.features.length") == 0
+    assert "With car traffic" not in page.text_content("#map-legend-list")
+
+
+def test_board_route_all_on_bikeways_says_so(page):
+    # Along the Cycle Path only (C to F): no car traffic at all.
+    page.select_option("#vehicle", "emb")
+    _set_trip_m(page, (200, -10), (200, -90))
+    page.wait_for_function("() => state.route && state.route.distance_m > 1")
+    assert "All on bike paths and lanes" in page.text_content("#route-summary")
+    assert page.evaluate("() => map.getSource('pev-route-traffic')._data.features.length") == 0

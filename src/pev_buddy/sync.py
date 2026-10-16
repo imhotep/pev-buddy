@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 import orjson
 
-from . import bikelink_fetch, config, elevation, motopark_fetch, osm_turns, overture_fetch, racks_fetch
+from . import bikelink_fetch, bikeways, config, elevation, motopark_fetch, osm_turns, overture_fetch, racks_fetch
 
 
 @click.group()
@@ -30,7 +30,15 @@ def _write_graph_bundle(out_dir: Path) -> None:
         return
     g = RoadGraph()
     exempt = osm_turns.load(out_dir / "bike_exempt_turns.json")
-    g.build(orjson.loads(roads_p.read_bytes()), orjson.loads(conns_p.read_bytes()), exempt)
+    roads = orjson.loads(roads_p.read_bytes())
+    lanes = bikeways.load(out_dir / "bikeways.geojson")
+    sfmta = None
+    if lanes:
+        sfmta = bikeways.match(roads["features"], lanes)
+        click.echo(f"bundle: SFMTA bikeways on {len(sfmta)} road segments ({len(lanes)} SFMTA lines)")
+    else:
+        click.echo("bundle: no bikeways.geojson; bike lanes come from Overture's bicycle flag", err=True)
+    g.build(roads, orjson.loads(conns_p.read_bytes()), exempt, sfmta)
     if exempt:
         click.echo(f"bundle: {sum(len(v) for v in g.prohib_moto.values())} turn bans lifted for bicycles ({len(exempt)} OSM rules)")
     grid = elevation.load_grid(out_dir / "elevation.npz")
@@ -81,6 +89,14 @@ def _write_elevation(bbox4: tuple, out_dir: Path) -> None:
     click.echo(f"elevation: elevation.npz ({grid['grid'].shape[1]}x{grid['grid'].shape[0]} px, zoom {grid['z']})")
 
 
+def _write_bikeways(out_dir: Path) -> None:
+    try:
+        n = bikeways.fetch(out_dir / "bikeways.geojson")
+        click.echo(f"bikeways: {n} SFMTA bikeway lines")
+    except Exception as e:  # an existing slice (or Overture's flag) still serves
+        click.echo(f"bikeways: fetch failed ({e}); any existing slice is kept", err=True)
+
+
 def _write_addresses_bundle(out_dir: Path) -> None:
     """Convert addresses.parquet to the packed addresses.npz + _meta.json bundle."""
     import numpy as np
@@ -100,7 +116,7 @@ def _write_addresses_bundle(out_dir: Path) -> None:
 @click.option("--bbox", default=None, help="xmin,ymin,xmax,ymax (default: SF)")
 @click.option("--release", default=None, help=f"Overture release (default: {config.OVERTURE_RELEASE})")
 @click.option("--out-dir", default=None, type=click.Path(), help="Output directory (default: ./data)")
-@click.option("--skip", default="", help="Comma-separated: roads,connectors,stations,addresses,places,bikelink,racks,motoparking,elevation,osmturns")
+@click.option("--skip", default="", help="Comma-separated: roads,connectors,stations,addresses,places,bikelink,racks,motoparking,elevation,osmturns,bikeways")
 def sync(bbox: str | None, release: str | None, out_dir: str | None, skip: str):
     """Download the SF Overture slices + BikeLink lockers + SFMTA bike racks."""
     parsed_bbox = None
@@ -121,6 +137,8 @@ def sync(bbox: str | None, release: str | None, out_dir: str | None, skip: str):
         _write_elevation(bbox4, out_dir_p)
     if "osmturns" not in skip_set:
         _write_bike_exempt_turns(bbox4, out_dir_p)
+    if "bikeways" not in skip_set:
+        _write_bikeways(out_dir_p)
     if "roads" not in skip_set and "connectors" not in skip_set:
         _write_graph_bundle(out_dir_p)
     if "roads" not in skip_set:
@@ -155,13 +173,16 @@ def sync(bbox: str | None, release: str | None, out_dir: str | None, skip: str):
 @click.option("--out-dir", default=None, type=click.Path(), help="Data directory (default: ./data)")
 @click.option("--fetch-elevation/--no-fetch-elevation", default=False, help="Download elevation.npz first")
 @click.option("--fetch-turns/--no-fetch-turns", default=False, help="Download bike_exempt_turns.json first")
-def bundle(out_dir: str | None, fetch_elevation: bool, fetch_turns: bool):
+@click.option("--fetch-bikeways/--no-fetch-bikeways", default=False, help="Download bikeways.geojson (SFMTA) first")
+def bundle(out_dir: str | None, fetch_elevation: bool, fetch_turns: bool, fetch_bikeways: bool):
     """Rebuild graph.npz and roads.display.geojson from the data already in the data dir."""
     out_dir_p = Path(out_dir) if out_dir else config.DATA_DIR
     if fetch_elevation:
         _write_elevation(config.SF_BBOX, out_dir_p)
     if fetch_turns:
         _write_bike_exempt_turns(config.SF_BBOX, out_dir_p)
+    if fetch_bikeways:
+        _write_bikeways(out_dir_p)
     _write_graph_bundle(out_dir_p)
     _write_display_roads(out_dir_p)
 

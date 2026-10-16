@@ -442,6 +442,7 @@ body.riding .maplibregl-user-location-accuracy-circle { display: none; }
 .pev-legend li { display: flex; align-items: center; gap: 8px; padding: 2px 0; white-space: nowrap; }
 .pev-legend .swatch { flex: none; display: inline-block; width: 18px; }
 .pev-legend .swatch.line { height: 4px; border-radius: 2px; background: var(--c); }
+#route-summary .all-bikeway { color: #35d07f; margin-top: 4px; }
 .pev-legend .swatch.dash { height: 0; border-top: 3px dashed var(--c); }
 .pev-legend .swatch.dot { width: 12px; height: 12px; margin: 0 3px; border-radius: 50%; background: var(--c); border: 2px solid #0c141d; }
 .pev-legend .swatch.dot.ring { border: 2px solid #fff; }
